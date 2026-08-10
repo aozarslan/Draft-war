@@ -1,4 +1,12 @@
 import { createRng } from "./rng";
+import {
+  AXIS_KEYS,
+  CATEGORIES,
+  MAX_SYNERGY,
+  allAxes,
+  getCategory,
+  type AxisKey,
+} from "./categories";
 import type {
   BattleLogEntry,
   BattleMap,
@@ -13,16 +21,23 @@ import type {
  * ---------------------------------------------------------------------------
  * BATTLE SIMULATOR (pure, deterministic given a seed)
  * ---------------------------------------------------------------------------
- * The stronger team is favoured but never guaranteed. The flow is:
+ * V2 fights on five canonical axes rather than on category stats. Each category
+ * projects its own ratings onto those axes (Marvel's Durability and Animals'
+ * Defense both become `defense`), which is what lets a crossover game work at
+ * all without the engine knowing what a "Bite" is.
  *
- *   effective stats = base stats x map modifiers x event modifiers x synergy
- *   team rating     = sum of effective overalls
- *   win probability = softmax over team ratings (shown to players, honest)
+ * Crossover fairness is handled by normalisation: in a mixed game every axis is
+ * rescaled from its own category's observed band onto a shared one, so the best
+ * Hollywood actor arrives at the same effective ceiling as the best Kryptonian.
+ * In a single-category game no rescaling happens and the authored numbers are
+ * used as written.
+ *
+ * The stronger team is favoured but never guaranteed:
+ *   team rating     = sum of (damage output x survivability), the same terms
+ *                     the round loop fights with
+ *   win probability = softmax over team ratings, with the coefficient fitted
+ *                     against the simulator so the number shown is honest
  *   outcome         = an actual round-by-round simulation using those stats
- *
- * The simulation is what decides the winner; the probability is a forecast of
- * it. Because everything is driven by one seed, the same battle can be replayed
- * byte-for-byte from the database, which is also what the tests rely on.
  */
 
 const MAX_ROUNDS = 14;
@@ -30,11 +45,24 @@ const TARGET_DURATION_MS = 34_000;
 const MAX_STEP_MS = 520;
 const POINTS_TABLE = [3, 2, 1, 0];
 
+/**
+ * Shared combat-value band that every category is mapped onto in a crossover.
+ * These are in the units `combatValue` returns, not raw stat points.
+ */
+const SHARED_LOW = 40;
+const SHARED_HIGH = 120;
+
 export interface BattleTeamInput {
   playerId: string;
   nickname: string;
   characters: { characterId: string; price: number }[];
 }
+
+/**
+ * Sorted combat values for every character in a category. Crossover
+ * normalisation maps a character's rank inside this list onto a shared band.
+ */
+export type AxisBands = Record<string, number[]>;
 
 export interface SimulateInput {
   teams: BattleTeamInput[];
@@ -42,6 +70,14 @@ export interface SimulateInput {
   event: EventCard;
   charactersById: Record<string, Character>;
   seed: string;
+  /** Categories in play. More than one turns normalisation on. */
+  categoryIds?: string[];
+  /**
+   * Per-category axis ranges, computed from the *full* pool of each category
+   * rather than from the drafted twenty, so the scale does not shift with the
+   * luck of the draft.
+   */
+  bands?: AxisBands;
 }
 
 interface Combatant {
@@ -49,12 +85,8 @@ interface Combatant {
   name: string;
   playerId: string;
   teamName: string;
-  power: number;
-  speed: number;
-  defense: number;
-  tactics: number;
-  special: number;
-  specialAbility: string;
+  axes: Record<AxisKey, number>;
+  ability: string;
   price: number;
   maxHp: number;
   hp: number;
@@ -65,33 +97,133 @@ interface Combatant {
   synergy: number;
 }
 
-function overallOf(c: {
-  power: number;
-  speed: number;
-  defense: number;
-  tactics: number;
-  special: number;
-}) {
-  return (c.power + c.speed + c.defense + c.tactics + c.special) / 5;
+/**
+ * A character's contribution to the fight, in the same terms the round loop
+ * uses: how hard they hit multiplied by how long they last.
+ *
+ * An earlier version averaged the five axes instead, which quietly lied to
+ * players — two squads could show near-identical ratings while one of them won
+ * every single simulation, because a high Strategy score flatters the average
+ * without stopping anybody's fist. The forecast has to be built out of the
+ * same numbers as the fight or it is not a forecast.
+ */
+function combatValue(axes: Record<AxisKey, number>): number {
+  const attack = axes.power * 0.6 + axes.special * 0.2 + axes.strategy * 0.2;
+  const hp = 70 + axes.defense * 1.55 + axes.power * 0.45;
+  return (attack * hp) / 230;
 }
 
 /**
- * Team synergy: overlapping tags mean the squad fights as a unit. Capped so a
- * mono-tag team cannot run away with the game.
+ * Sorted combat values per category, derived from a character list. Pass the
+ * whole pool so the scale does not move with the luck of a draft.
  */
-export function computeSynergy(chars: Character[]): number {
+export function computeAxisBands(characters: Character[]): AxisBands {
+  const bands: AxisBands = {};
+  for (const c of characters) {
+    const value = combatValue(allAxes(getCategory(c.categoryId), c.stats));
+    (bands[c.categoryId] ??= []).push(value);
+  }
+  for (const key of Object.keys(bands)) bands[key].sort((a, b) => a - b);
+  return bands;
+}
+
+/** Where a value sits inside a sorted list, as 0..1. */
+function percentileOf(sorted: number[], value: number): number {
+  if (sorted.length < 2) return 0.5;
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return Math.min(1, Math.max(0, lo / (sorted.length - 1)));
+}
+
+/**
+ * A character's axes, rescaled onto a shared scale when categories are mixed.
+ * With a single category this returns the authored values untouched.
+ *
+ * Normalisation works on COMBAT VALUE, not on each axis separately. Rescaling
+ * axis by axis looked right and played terribly: combat value is roughly
+ * attack x survivability, so a category whose best characters are extreme on
+ * both — comic-book gods — kept a compounding edge over a category whose best
+ * are merely well-rounded, and the top five Hollywood actors won 1% of games
+ * against the top five from Marvel. Mapping each character's rank inside its
+ * own category onto one shared band fixes that by construction, and it cannot
+ * reorder a category against itself.
+ */
+export function projectAxes(
+  character: Character,
+  options: { mixed: boolean; bands?: AxisBands } = { mixed: false },
+): Record<AxisKey, number> {
+  const raw = allAxes(getCategory(character.categoryId), character.stats);
+  if (!options.mixed) return raw;
+
+  const sorted = options.bands?.[character.categoryId];
+  if (!sorted || sorted.length < 2) return raw;
+
+  const current = combatValue(raw);
+  const target =
+    SHARED_LOW + percentileOf(sorted, current) * (SHARED_HIGH - SHARED_LOW);
+
+  // combatValue grows faster than linearly in the axes, so solve for the
+  // scaling factor numerically rather than assuming a shape.
+  let lo = 0.2;
+  let hi = 3;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    const scaled = {} as Record<AxisKey, number>;
+    for (const key of AXIS_KEYS) scaled[key] = raw[key] * mid;
+    if (combatValue(scaled) < target) lo = mid;
+    else hi = mid;
+  }
+
+  const factor = (lo + hi) / 2;
+  const out = {} as Record<AxisKey, number>;
+  for (const key of AXIS_KEYS) out[key] = raw[key] * factor;
+  return out;
+}
+
+/** Every synergy group defined by any category, indexed by tag. */
+const SYNERGY_BY_TAG = new Map<string, { label: string; perMember: number }>();
+for (const category of CATEGORIES) {
+  for (const group of category.synergies) {
+    if (!SYNERGY_BY_TAG.has(group.tag)) {
+      SYNERGY_BY_TAG.set(group.tag, { label: group.label, perMember: group.perMember });
+    }
+  }
+}
+
+export interface SynergyResult {
+  total: number;
+  groups: { label: string; bonus: number }[];
+}
+
+/**
+ * Team synergy: squads built around a shared identity fight as a unit. Capped
+ * at +10% so it flavours a draft without deciding it.
+ */
+export function computeSynergy(chars: Character[]): SynergyResult {
   const counts = new Map<string, number>();
   for (const c of chars) {
-    for (const tag of c.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const tag of c.tags) {
+      if (SYNERGY_BY_TAG.has(tag)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
   }
-  let synergy = 0;
-  for (const [, n] of counts) if (n >= 2) synergy += 0.015 * (n - 1);
-  // A little reward for stat balance too, so "5 glass cannons" is a real choice.
-  const avgDef = chars.reduce((s, c) => s + c.defense, 0) / (chars.length || 1);
-  const avgSpd = chars.reduce((s, c) => s + c.speed, 0) / (chars.length || 1);
-  const balance = 1 - Math.min(1, Math.abs(avgDef - avgSpd) / 30);
-  synergy += balance * 0.03;
-  return Math.min(0.14, Number(synergy.toFixed(4)));
+
+  const groups: { label: string; bonus: number }[] = [];
+  let total = 0;
+  for (const [tag, n] of counts) {
+    if (n < 2) continue;
+    const def = SYNERGY_BY_TAG.get(tag)!;
+    const bonus = def.perMember * (n - 1);
+    groups.push({ label: `${def.label} ×${n}`, bonus: Math.round(bonus * 1000) / 1000 });
+    total += bonus;
+  }
+
+  groups.sort((a, b) => b.bonus - a.bonus);
+  return { total: Math.min(MAX_SYNERGY, Number(total.toFixed(4))), groups };
 }
 
 /** Character-level multiplier coming from the map and the event card. */
@@ -116,24 +248,33 @@ export function teamRating(
   charactersById: Record<string, Character>,
   map: BattleMap,
   event: EventCard,
+  options: { mixed: boolean; bands?: AxisBands } = { mixed: false },
 ): number {
   const chars = team.characters
     .map((c) => charactersById[c.characterId])
     .filter(Boolean);
-  const synergy = computeSynergy(chars);
-  const raw = chars.reduce(
-    (sum, c) => sum + overallOf(c) * environmentMultiplier(c, map, event),
-    0,
-  );
+  const synergy = computeSynergy(chars).total;
+  const raw = chars.reduce((sum, c) => {
+    const env = environmentMultiplier(c, map, event);
+    const axes = projectAxes(c, options);
+    const scaled = {} as Record<AxisKey, number>;
+    for (const key of AXIS_KEYS) scaled[key] = axes[key] * env;
+    return sum + combatValue(scaled);
+  }, 0);
   return Math.round(raw * (1 + synergy) * 100) / 100;
 }
 
 /**
- * Softmax over ratings. `K` is tuned so that the spec's example (438 vs 421)
- * lands close to 58% / 42% rather than a near-certain win.
+ * Softmax over team ratings.
+ *
+ * K is not guessed: it is fitted against the simulator itself. The calibration
+ * sweep runs seventy random matchups (single-category and crossover) sixty
+ * times each and least-squares fits the logistic that best predicts the actual
+ * win rate. If the damage model changes, refit it — a forecast nobody can trust
+ * is worse than no forecast.
  */
 export function winProbabilities(ratings: number[]): number[] {
-  const K = 0.019;
+  const K = 0.0475;
   const max = Math.max(...ratings);
   const exps = ratings.map((r) => Math.exp(K * (r - max)));
   const sum = exps.reduce((a, b) => a + b, 0);
@@ -141,12 +282,27 @@ export function winProbabilities(ratings: number[]): number[] {
 }
 
 export function simulateBattle(input: SimulateInput): BattleResult {
-  const { teams, map, event, charactersById, seed } = input;
+  const { teams, map, event, charactersById, seed, bands } = input;
+  const categoryIds =
+    input.categoryIds && input.categoryIds.length
+      ? input.categoryIds
+      : Array.from(
+          new Set(
+            teams.flatMap((t) =>
+              t.characters
+                .map((c) => charactersById[c.characterId]?.categoryId)
+                .filter(Boolean) as string[],
+            ),
+          ),
+        );
+  const mixed = categoryIds.length > 1;
+  const projection = { mixed, bands };
+
   const rng = createRng(`battle:${seed}`);
 
   // ---- 1. Build combatants -------------------------------------------------
   const combatants: Combatant[] = [];
-  const teamSynergy = new Map<string, number>();
+  const teamSynergy = new Map<string, SynergyResult>();
 
   for (const team of teams) {
     const chars = team.characters
@@ -155,55 +311,49 @@ export function simulateBattle(input: SimulateInput): BattleResult {
     const synergy = computeSynergy(chars);
     teamSynergy.set(team.playerId, synergy);
 
-    // CHAOS drains a slice of one random stat for the whole team.
-    const drainStat =
-      event.kind === "RANDOM_STAT_DRAIN"
-        ? rng.pick(["power", "speed", "defense", "tactics", "special"] as const)
-        : null;
-    const drainAmount = drainStat ? rng.int(4, 9) : 0;
+    // CHAOS drains a slice of one random axis for the whole team.
+    const drainAxis =
+      event.kind === "RANDOM_STAT_DRAIN" ? rng.pick(AXIS_KEYS) : null;
+    const drainAmount = drainAxis ? rng.int(4, 9) : 0;
 
     for (const entry of team.characters) {
       const c = charactersById[entry.characterId];
       if (!c) continue;
-      const env = environmentMultiplier(c, map, event);
-      const scale = (v: number, key: string) =>
-        Math.max(
-          1,
-          Math.round(v * env) - (drainStat === key ? drainAmount : 0),
-        );
 
-      const power = scale(c.power, "power");
-      const speed = scale(c.speed, "speed");
-      const defense = scale(c.defense, "defense");
-      const tactics = scale(c.tactics, "tactics");
-      const special = scale(c.special, "special");
+      const env = environmentMultiplier(c, map, event);
+      const base = projectAxes(c, projection);
+      const axes = {} as Record<AxisKey, number>;
+      for (const key of AXIS_KEYS) {
+        axes[key] = Math.max(
+          1,
+          Math.round(base[key] * env) - (drainAxis === key ? drainAmount : 0),
+        );
+      }
 
       combatants.push({
         characterId: c.id,
         name: c.name,
         playerId: team.playerId,
         teamName: team.nickname,
-        power,
-        speed,
-        defense,
-        tactics,
-        special,
-        specialAbility: c.specialAbility,
+        axes,
+        ability: c.abilities[0] ?? "Signature Move",
         price: entry.price,
-        maxHp: Math.round(70 + defense * 1.55 + power * 0.45),
+        maxHp: Math.round(70 + axes.defense * 1.55 + axes.power * 0.45),
         hp: 0,
         damageDealt: 0,
         damageTaken: 0,
         kills: 0,
         specials: 0,
-        synergy,
+        synergy: synergy.total,
       });
     }
   }
   for (const c of combatants) c.hp = c.maxHp;
 
   // ---- 2. Forecast ---------------------------------------------------------
-  const ratings = teams.map((t) => teamRating(t, charactersById, map, event));
+  const ratings = teams.map((t) =>
+    teamRating(t, charactersById, map, event, projection),
+  );
   const probabilities = winProbabilities(ratings);
 
   // AMBUSH: the fastest average team opens with a free damage bonus.
@@ -212,7 +362,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
     let best = -1;
     for (const t of teams) {
       const mine = combatants.filter((c) => c.playerId === t.playerId);
-      const avg = mine.reduce((s, c) => s + c.speed, 0) / (mine.length || 1);
+      const avg = mine.reduce((s, c) => s + c.axes.speed, 0) / (mine.length || 1);
       if (avg > best) {
         best = avg;
         ambushTeamId = t.playerId;
@@ -228,16 +378,11 @@ export function simulateBattle(input: SimulateInput): BattleResult {
   let round = 0;
   while (round < MAX_ROUNDS && aliveTeams().size > 1) {
     round++;
-    log.push({
-      round,
-      atMs: 0,
-      kind: "ROUND_START",
-      text: `ROUND ${round}`,
-    });
+    log.push({ round, atMs: 0, kind: "ROUND_START", text: `ROUND ${round}` });
 
     const order = combatants
       .filter((c) => c.hp > 0)
-      .map((c) => ({ c, roll: c.speed + rng.range(-12, 12) }))
+      .map((c) => ({ c, roll: c.axes.speed + rng.range(-12, 12) }))
       .sort((a, b) => b.roll - a.roll)
       .map((x) => x.c);
 
@@ -254,9 +399,11 @@ export function simulateBattle(input: SimulateInput): BattleResult {
         : rng.pick(enemies);
 
       const attack =
-        (actor.power * 0.6 + actor.special * 0.2 + actor.tactics * 0.2) *
+        (actor.axes.power * 0.6 +
+          actor.axes.special * 0.2 +
+          actor.axes.strategy * 0.2) *
         (1 + actor.synergy);
-      const guard = target.defense * 0.5 + target.speed * 0.18;
+      const guard = target.axes.defense * 0.5 + target.axes.speed * 0.18;
 
       let damage = (attack - guard * 0.62) * rng.range(0.82, 1.18) * 0.62;
       if (round === 1 && ambushTeamId === actor.playerId) damage *= 1.25;
@@ -264,15 +411,16 @@ export function simulateBattle(input: SimulateInput): BattleResult {
       let kind: BattleLogEntry["kind"] = "ATTACK";
       let text = `${actor.name} strikes ${target.name}.`;
 
-      const specialChance = actor.special / 620;
-      const critChance = 0.05 + (actor.tactics + actor.speed) / 2 / 1000;
-      const blockChance = Math.min(0.22, target.defense / 900);
+      const specialChance = actor.axes.special / 620;
+      const critChance =
+        0.05 + (actor.axes.strategy + actor.axes.speed) / 2 / 1000;
+      const blockChance = Math.min(0.22, target.axes.defense / 900);
 
       if (rng.chance(specialChance)) {
         damage *= 1.55;
         actor.specials++;
         kind = "SPECIAL";
-        text = `${actor.name} uses ${actor.specialAbility} on ${target.name}.`;
+        text = `${actor.name} uses ${actor.ability} on ${target.name}.`;
       } else if (rng.chance(critChance)) {
         damage *= 1.7;
         kind = "CRIT";
@@ -336,6 +484,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
       teamRating: ratings[i],
       rank: 0,
       points: 0,
+      synergies: teamSynergy.get(t.playerId)?.groups ?? [],
     } satisfies TeamResult;
   });
 
@@ -408,6 +557,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
     seed,
     mapId: map.id,
     eventId: event.id,
+    categoryIds,
     log,
     durationMs,
     teams: teamStats,

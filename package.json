@@ -2,7 +2,7 @@
   "name": "draft-war",
   "version": "1.0.0",
   "private": true,
-  "description": "DRAFT WAR — multiplayer character drafting, auction and battle simulation game.",
+  "description": "DRAFT WAR \u2014 multiplayer character drafting, auction and battle simulation game.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:sql": "tsx scripts/generate-character-sql.ts"
+    "seed:sql": "tsx scripts/generate-character-sql.ts",
+    "wiki:enrich": "tsx scripts/enrich-characters.ts",
+    "balance": "tsx scripts/balance-report.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

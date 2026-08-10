@@ -1,375 +1,172 @@
-import type { Character } from "./types";
+import {
+  CATEGORIES,
+  basePriceForPower,
+  computeGamePower,
+  getCategory,
+  rarityForPower,
+} from "./categories";
+import type { Character, PoolEntry } from "./types";
+
+import { MARVEL } from "./pools/marvel";
+import { DC } from "./pools/dc";
+import { HOLLYWOOD } from "./pools/hollywood";
+import { ACTION_MOVIES } from "./pools/action-movies";
+import { ANIMALS } from "./pools/animals";
+import { FANTASY } from "./pools/fantasy";
+import { VIDEO_GAMES } from "./pools/video-games";
+import { ANIME } from "./pools/anime";
 
 /**
  * ---------------------------------------------------------------------------
- * CHARACTER POOL
+ * CHARACTER POOLS
  * ---------------------------------------------------------------------------
- * This file is pure data. The engine never switches on a specific character id,
- * so a pool can be swapped, extended or replaced entirely (Marvel, DC, animals,
- * anime, video games ...) without touching game logic. Only two rules matter:
+ * Pool files under `pools/` are pure data in a deliberately terse shape. Game
+ * power, rarity, price and artwork palette are all derived here, so adding a
+ * character is one line and can never disagree with itself.
  *
- *   1. Every character must carry the five gameplay stats.
- *   2. `tags` drive map and event modifiers. Unknown tags are ignored, so you
- *      can invent new ones freely and add matching maps/events later.
+ * Descriptions and images are filled in from Wikipedia by
+ * `scripts/enrich-characters.ts`, which writes `data/wiki-cache.json`; the SQL
+ * seed generator merges that in. Nothing here fetches at runtime.
  *
- * The starter pool is a set of ORIGINAL action-movie-flavoured characters —
- * archetype homages rather than copies of existing characters. If you want to
- * rename them to the characters you had in mind, edit `name`/`title` here only;
- * nothing else in the codebase depends on the names. After editing, run
- * `npm run seed:sql` to regenerate the SQL seed and re-run the migration.
- *
- * BALANCE NOTE: the stat sums are deliberately kept inside a narrow 442–451
- * band so that no single character dominates. Characters differ by shape
- * (glass cannon vs. tank vs. tactician), not by raw total.
- * The numbers are gameplay values only — they are not claims about anybody.
+ * Every rating in these files is a GAME RATING invented for DRAFT WAR. For the
+ * Hollywood and Animals categories in particular, they describe how something
+ * plays in this game and nothing about the real world.
  */
 
-export const CHARACTERS: Character[] = [
-  {
-    id: "kane-vasco",
-    name: "Kane Vasco",
-    title: "The Ronin",
-    universe: "ACTION",
-    rarity: "LEGENDARY",
-    power: 88,
-    speed: 91,
-    defense: 82,
-    tactics: 96,
-    special: 94,
-    specialAbility: "Pencil Work",
-    tags: ["melee", "marksman", "tactical", "stealth"],
-    basePrice: 10,
-    palette: ["#7c3aed", "#22d3ee"],
-  },
-  {
-    id: "adam-kessler",
-    name: "Adam Kessler",
-    title: "The Erased Asset",
-    universe: "ACTION",
-    rarity: "LEGENDARY",
-    power: 82,
-    speed: 90,
-    defense: 84,
-    tactics: 98,
-    special: 92,
-    specialAbility: "Improvised Counter",
-    tags: ["tactical", "stealth", "brawler", "survival"],
-    basePrice: 10,
-    palette: ["#2563eb", "#38bdf8"],
-  },
-  {
-    id: "ryder-cross",
-    name: "Ryder Cross",
-    title: "Impossible Odds",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 84,
-    speed: 93,
-    defense: 80,
-    tactics: 94,
-    special: 95,
-    specialAbility: "Rooftop Gambit",
-    tags: ["mobility", "tactical", "tech"],
-    basePrice: 9,
-    palette: ["#f43f5e", "#fb923c"],
-  },
-  {
-    id: "sterling-vane",
-    name: "Sterling Vane",
-    title: "Crown Agent",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 83,
-    speed: 86,
-    defense: 85,
-    tactics: 97,
-    special: 93,
-    specialAbility: "Gadget Play",
-    tags: ["tactical", "marksman", "tech", "stealth"],
-    basePrice: 9,
-    palette: ["#0ea5e9", "#a78bfa"],
-  },
-  {
-    id: "tyler-stone",
-    name: "Tyler Stone",
-    title: "The Extractor",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 94,
-    speed: 85,
-    defense: 92,
-    tactics: 82,
-    special: 90,
-    specialAbility: "One-Shot Corridor",
-    tags: ["melee", "ranged", "survival", "brawler"],
-    basePrice: 9,
-    palette: ["#16a34a", "#84cc16"],
-  },
-  {
-    id: "boone-halloway",
-    name: "Boone Halloway",
-    title: "The Last Veteran",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 95,
-    speed: 80,
-    defense: 95,
-    tactics: 86,
-    special: 88,
-    specialAbility: "Trap Line",
-    tags: ["survival", "ranged", "melee", "veteran"],
-    basePrice: 9,
-    palette: ["#65a30d", "#facc15"],
-  },
-  {
-    id: "frank-mercer",
-    name: "Frank Mercer",
-    title: "The Courier",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 86,
-    speed: 92,
-    defense: 86,
-    tactics: 90,
-    special: 89,
-    specialAbility: "Precision Delivery",
-    tags: ["mobility", "melee", "tactical"],
-    basePrice: 8,
-    palette: ["#111827", "#f59e0b"],
-  },
-  {
-    id: "elias-quinn",
-    name: "Elias Quinn",
-    title: "The Bookkeeper",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 87,
-    speed: 82,
-    defense: 90,
-    tactics: 97,
-    special: 88,
-    specialAbility: "Twenty-Nine Seconds",
-    tags: ["tactical", "melee", "stealth"],
-    basePrice: 9,
-    palette: ["#334155", "#22d3ee"],
-  },
-  {
-    id: "bryce-kellan",
-    name: "Bryce Kellan",
-    title: "The Retriever",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 89,
-    speed: 84,
-    defense: 88,
-    tactics: 95,
-    special: 86,
-    specialAbility: "Particular Skills",
-    tags: ["tactical", "marksman", "veteran"],
-    basePrice: 8,
-    palette: ["#7f1d1d", "#f87171"],
-  },
-  {
-    id: "kiri-amano",
-    name: "Kiri Amano",
-    title: "The Vowed Blade",
-    universe: "ACTION",
-    rarity: "LEGENDARY",
-    power: 88,
-    speed: 95,
-    defense: 78,
-    tactics: 90,
-    special: 93,
-    specialAbility: "Five Point Strike",
-    tags: ["melee", "mobility", "stealth"],
-    basePrice: 10,
-    palette: ["#fbbf24", "#ef4444"],
-  },
-  {
-    id: "arka-wijaya",
-    name: "Arka Wijaya",
-    title: "Raid Fist",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 92,
-    speed: 96,
-    defense: 82,
-    tactics: 80,
-    special: 93,
-    specialAbility: "Stairwell Rush",
-    tags: ["melee", "brawler", "mobility"],
-    basePrice: 9,
-    palette: ["#dc2626", "#fde047"],
-  },
-  {
-    id: "cutter-braddock",
-    name: "Cutter Braddock",
-    title: "Jungle Command",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 96,
-    speed: 78,
-    defense: 94,
-    tactics: 84,
-    special: 90,
-    specialAbility: "Suppressing Fire",
-    tags: ["ranged", "survival", "leader", "brawler"],
-    basePrice: 8,
-    palette: ["#166534", "#a3e635"],
-  },
-  {
-    id: "cole-mateo",
-    name: "Cole Mateo",
-    title: "One Man Squad",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 98,
-    speed: 80,
-    defense: 95,
-    tactics: 78,
-    special: 91,
-    specialAbility: "Armory Dump",
-    tags: ["brawler", "ranged", "melee"],
-    basePrice: 8,
-    palette: ["#b45309", "#fbbf24"],
-  },
-  {
-    id: "milo-reyes",
-    name: "Milo Reyes",
-    title: "The Cleaner",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 80,
-    speed: 86,
-    defense: 82,
-    tactics: 98,
-    special: 96,
-    specialAbility: "Silent Setup",
-    tags: ["marksman", "stealth", "tactical"],
-    basePrice: 9,
-    palette: ["#1e293b", "#4ade80"],
-  },
-  {
-    id: "nash-riggs",
-    name: "Nash Riggs",
-    title: "Adrenaline Case",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 93,
-    speed: 97,
-    defense: 74,
-    tactics: 80,
-    special: 98,
-    specialAbility: "Redline",
-    tags: ["mobility", "brawler", "melee"],
-    basePrice: 8,
-    palette: ["#e11d48", "#f97316"],
-  },
-  {
-    id: "rook-calloway",
-    name: "Rook Calloway",
-    title: "The Escapist",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 90,
-    speed: 83,
-    defense: 88,
-    tactics: 92,
-    special: 89,
-    specialAbility: "Countdown Bluff",
-    tags: ["stealth", "survival", "ranged", "leader"],
-    basePrice: 8,
-    palette: ["#0f172a", "#38bdf8"],
-  },
-  {
-    id: "lin-bo",
-    name: "Master Lin Bo",
-    title: "Improvised Master",
-    universe: "ACTION",
-    rarity: "EPIC",
-    power: 84,
-    speed: 94,
-    defense: 84,
-    tactics: 92,
-    special: 89,
-    specialAbility: "Environmental Combat",
-    tags: ["melee", "mobility", "brawler", "environment"],
-    basePrice: 9,
-    palette: ["#f59e0b", "#ef4444"],
-  },
-  {
-    id: "wei-zhan",
-    name: "Wei Zhan",
-    title: "Iron Discipline",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 91,
-    speed: 93,
-    defense: 86,
-    tactics: 86,
-    special: 87,
-    specialAbility: "Wing Chun Chain",
-    tags: ["melee", "brawler", "mobility"],
-    basePrice: 8,
-    palette: ["#1d4ed8", "#f8fafc"],
-  },
-  {
-    id: "dex-harlow",
-    name: "Dex Harlow",
-    title: "The Mechanic",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 92,
-    speed: 88,
-    defense: 89,
-    tactics: 85,
-    special: 88,
-    specialAbility: "Clean Exit",
-    tags: ["brawler", "mobility", "melee", "ranged"],
-    basePrice: 8,
-    palette: ["#475569", "#f43f5e"],
-  },
-  {
-    id: "viktor-sable",
-    name: "Viktor Sable",
-    title: "The Undisputed",
-    universe: "ACTION",
-    rarity: "RARE",
-    power: 93,
-    speed: 95,
-    defense: 85,
-    tactics: 80,
-    special: 89,
-    specialAbility: "Spinning Finish",
-    tags: ["melee", "mobility", "brawler"],
-    basePrice: 8,
-    palette: ["#6d28d9", "#f472b6"],
-  },
-];
+export function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function hash(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function hexToHsl(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h * 360, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] =
+    h < 60 ? [c, x, 0] :
+    h < 120 ? [x, c, 0] :
+    h < 180 ? [0, c, x] :
+    h < 240 ? [0, x, c] :
+    h < 300 ? [x, 0, c] : [c, 0, x];
+  const to = (v: number) =>
+    Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+/**
+ * Placeholder artwork palette: the category's colours, nudged per character so
+ * a grid of cards has variety while still reading as one category.
+ */
+function paletteFor(categoryPalette: [string, string], seed: string): [string, string] {
+  const h = hash(seed);
+  const shift = (h % 40) - 20;
+  const [h0, s0, l0] = hexToHsl(categoryPalette[0]);
+  const [h1, s1, l1] = hexToHsl(categoryPalette[1]);
+  return [
+    hslToHex(h0 + shift, s0, Math.min(0.5, Math.max(0.12, l0 + ((h >> 8) % 9) / 100))),
+    hslToHex(h1 + shift, s1, Math.min(0.72, Math.max(0.4, l1 + ((h >> 16) % 11) / 100))),
+  ];
+}
+
+/** Turns a terse pool entry into a full character. */
+export function buildCharacter(categoryId: string, entry: PoolEntry): Character {
+  const category = getCategory(categoryId);
+
+  const stats: Record<string, number> = {};
+  category.stats.forEach((stat, i) => {
+    stats[stat.key] = entry.s[i] ?? 50;
+  });
+
+  const gamePower = computeGamePower(category, stats);
+
+  return {
+    id: `${categoryId}-${slugify(entry.n)}`,
+    name: entry.n,
+    categoryId,
+    universe: entry.u,
+    version: entry.v ?? null,
+    title: entry.t,
+    description: "",
+    actor: entry.a ?? null,
+    rarity: rarityForPower(gamePower),
+    stats,
+    gamePower,
+    abilities: entry.ab ?? [],
+    tags: entry.g,
+    basePrice: basePriceForPower(gamePower),
+    wikiTitle: entry.w === null ? null : (entry.w ?? entry.n),
+    wikiUrl: null,
+    imageUrl: null,
+    thumbnailUrl: null,
+    imageSource: null,
+    imageLicense: null,
+    imageCredit: null,
+    palette: paletteFor(category.palette, entry.n),
+  };
+}
+
+export function buildPool(categoryId: string, entries: PoolEntry[]): Character[] {
+  return entries.map((e) => buildCharacter(categoryId, e));
+}
+
+export const POOLS: Record<string, PoolEntry[]> = {
+  marvel: MARVEL,
+  dc: DC,
+  hollywood: HOLLYWOOD,
+  "action-movies": ACTION_MOVIES,
+  animals: ANIMALS,
+  fantasy: FANTASY,
+  "video-games": VIDEO_GAMES,
+  anime: ANIME,
+};
+
+export const CHARACTERS: Character[] = CATEGORIES.flatMap((c) =>
+  buildPool(c.id, POOLS[c.id] ?? []),
+);
 
 export const CHARACTERS_BY_ID: Record<string, Character> = Object.fromEntries(
   CHARACTERS.map((c) => [c.id, c]),
 );
 
-/** Single scalar used for ordering, pricing hints and battle ratings. */
-export function overall(c: {
-  power: number;
-  speed: number;
-  defense: number;
-  tactics: number;
-  special: number;
-}): number {
-  return Math.round(
-    (c.power + c.speed + c.defense + c.tactics + c.special) / 5,
-  );
+export function charactersInCategories(categoryIds: string[]): Character[] {
+  const wanted = new Set(categoryIds);
+  return CHARACTERS.filter((c) => wanted.has(c.categoryId));
 }
 
-export function statTotal(c: {
-  power: number;
-  speed: number;
-  defense: number;
-  tactics: number;
-  special: number;
-}): number {
-  return c.power + c.speed + c.defense + c.tactics + c.special;
+export function categoryCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
+  return counts;
 }

@@ -1,23 +1,43 @@
 "use client";
 
+import { useState } from "react";
 import type { RoomStore } from "@/lib/client/useRoom";
 import type { Character } from "@/lib/game/types";
 import { computeSynergy } from "@/lib/game/battle";
+import { AXIS_KEYS, AXIS_LABELS, allAxes, getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
-import { CharacterArt } from "./CharacterArt";
+import { CharacterImage } from "./CharacterImage";
+import { CharacterModal } from "./CharacterModal";
+import { GameRatingNote } from "./GameRatingNote";
 import { Countdown, Panel, SectionTitle, StatBar } from "./ui";
 
-function teamStats(chars: Character[]) {
-  const sum = (k: keyof Character) =>
-    chars.reduce((s, c) => s + (c[k] as number), 0);
+const AXIS_COLOR: Record<string, string> = {
+  power: "#f43f5e",
+  speed: "#22d3ee",
+  defense: "#22c55e",
+  strategy: "#a855f7",
+  special: "#fbbf24",
+};
+
+/**
+ * Team stats are reported on the canonical axes rather than on category stat
+ * names, because in a crossover game the squads may not share a vocabulary —
+ * one player's "Bite" and another's "Combat" both land on Special.
+ */
+function teamAxes(chars: Character[]) {
+  const totals = { power: 0, speed: 0, defense: 0, strategy: 0, special: 0 };
+  for (const c of chars) {
+    const axes = allAxes(getCategory(c.categoryId), c.stats);
+    for (const key of AXIS_KEYS) totals[key] += axes[key];
+  }
   const n = Math.max(1, chars.length);
   return {
-    power: Math.round(sum("power") / n),
-    speed: Math.round(sum("speed") / n),
-    defense: Math.round(sum("defense") / n),
-    tactics: Math.round(sum("tactics") / n),
-    special: Math.round(sum("special") / n),
-    total: sum("power") + sum("speed") + sum("defense") + sum("tactics") + sum("special"),
+    power: Math.round(totals.power / n),
+    speed: Math.round(totals.speed / n),
+    defense: Math.round(totals.defense / n),
+    strategy: Math.round(totals.strategy / n),
+    special: Math.round(totals.special / n),
+    rating: Math.round(AXIS_KEYS.reduce((s, k) => s + totals[k], 0)),
   };
 }
 
@@ -29,14 +49,19 @@ export function TeamReview({
   charactersById: Record<string, Character>;
 }) {
   const { snapshot, me, act, serverNow } = store;
+  const [detail, setDetail] = useState<Character | null>(null);
   if (!snapshot) return null;
+
+  const categories = (snapshot.game?.categoryIds ?? []).map(getCategory);
+  const primary = categories[0];
 
   return (
     <div className="space-y-4">
       <div className="text-center">
         <h2 className="headline text-[clamp(1.8rem,8vw,3rem)] neon-text">Team Review</h2>
         <p className="mt-1 text-sm font-semibold text-white/50">
-          The draft is done. Here is what everyone paid for.
+          {categories.map((c) => `${c.icon} ${c.name}`).join(" + ")} — here is what
+          everyone paid for.
         </p>
       </div>
 
@@ -46,7 +71,7 @@ export function TeamReview({
           const chars = p.roster
             .map((r) => charactersById[r.characterId])
             .filter(Boolean) as Character[];
-          const stats = teamStats(chars);
+          const axes = teamAxes(chars);
           const synergy = computeSynergy(chars);
           const spent = p.roster.reduce((s, r) => s + r.price, 0);
 
@@ -70,39 +95,61 @@ export function TeamReview({
 
               <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
                 {chars.map((c, i) => (
-                  <div key={c.id} className="w-[86px] shrink-0">
+                  <button
+                    key={c.id}
+                    onClick={() => setDetail(c)}
+                    className="w-[86px] shrink-0 p-0 text-left"
+                  >
                     <div className="aspect-[5/6] overflow-hidden rounded-lg border border-white/10">
-                      <CharacterArt character={c} />
+                      <CharacterImage character={c} sizes="100px" />
                     </div>
                     <p className="mt-1 truncate text-[10px] font-bold">{c.name}</p>
                     <p className="text-[10px] font-black tabular-nums text-amber-300">
-                      {p.roster[i]?.price ?? 0} cr
+                      {p.roster[i]?.price ?? 0} cr · {c.gamePower}
                     </p>
-                  </div>
+                  </button>
                 ))}
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 pb-3">
-                <StatBar label="Power" value={stats.power} color="#f43f5e" />
-                <StatBar label="Speed" value={stats.speed} color="#22d3ee" />
-                <StatBar label="Defense" value={stats.defense} color="#22c55e" />
-                <StatBar label="Tactics" value={stats.tactics} color="#a855f7" />
-                <StatBar label="Special" value={stats.special} color="#fbbf24" />
+                {AXIS_KEYS.map((key) => (
+                  <StatBar
+                    key={key}
+                    label={AXIS_LABELS[key]}
+                    value={axes[key]}
+                    color={AXIS_COLOR[key]}
+                  />
+                ))}
                 <StatBar
                   label="Synergy"
-                  value={Math.round(synergy * 100)}
-                  max={14}
+                  value={Math.round(synergy.total * 100)}
+                  max={10}
                   color="#38bdf8"
                 />
               </div>
 
+              {synergy.groups.length ? (
+                <div className="flex flex-wrap gap-1 px-4 pb-3">
+                  {synergy.groups.map((g) => (
+                    <span
+                      key={g.label}
+                      className="rounded-full border border-cyan-400/30 px-2 py-0.5 text-[10px] font-bold text-cyan-300"
+                    >
+                      {g.label} +{Math.round(g.bonus * 100)}%
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
               <p className="px-4 pb-4 text-[11px] text-white/35">
-                Spent {spent} credits · squad rating {stats.total}
+                Spent {spent} credits · squad rating {axes.rating}
               </p>
             </Panel>
           );
         })}
       </div>
+
+      {primary ? <GameRatingNote category={primary} /> : null}
 
       <Panel>
         <SectionTitle
@@ -128,6 +175,8 @@ export function TeamReview({
           )}
         </div>
       </Panel>
+
+      <CharacterModal character={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { play, setSoundEnabled, soundEnabled } from "@/lib/client/sound";
 import type { Character } from "@/lib/game/types";
 import { ConnectionPill, LoadingScreen, Panel, Toasts } from "./ui";
 import { Lobby } from "./Lobby";
+import { CategorySelection } from "./CategorySelection";
 import { AuctionStage } from "./AuctionStage";
 import { TeamReview } from "./TeamReview";
 import { MapSelection } from "./MapSelection";
@@ -21,6 +22,7 @@ import { DevPanel } from "./DevPanel";
 
 const PHASE_LABEL: Record<string, string> = {
   LOBBY: "Lobby",
+  CATEGORY: "Category",
   AUCTION: "Auction",
   TEAM_REVIEW: "Team review",
   MAP_SELECTION: "Map vote",
@@ -139,6 +141,9 @@ export function RoomClient({ code }: { code: string }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <main className="min-w-0">
           {phase === "LOBBY" ? <Lobby store={store} /> : null}
+          {phase === "CATEGORY" ? (
+            <CategorySelection store={store} counts={reference.categoryCounts ?? {}} />
+          ) : null}
           {phase === "AUCTION" ? (
             <AuctionStage store={store} charactersById={charactersById} />
           ) : null}
@@ -172,7 +177,7 @@ export function RoomClient({ code }: { code: string }) {
         <aside className="min-w-0 space-y-4">
           <Leaderboard snapshot={snapshot} />
           {/* Chat stays out of the way while the battle plays. */}
-          {phase !== "BATTLE" ? (
+          {phase !== "BATTLE" && phase !== "CATEGORY" ? (
             <ChatPanel store={store} open={chatOpen} onClose={() => setChatOpen(false)} />
           ) : null}
         </aside>

@@ -2,12 +2,15 @@
 
 import type { Snapshot } from "@/lib/server/engine";
 import type { Character, BattleMap, EventCard } from "@/lib/game/types";
+import type { Category } from "@/lib/game/categories";
 import type { StoredSession } from "./session";
 
 export interface Reference {
   characters: Character[];
   maps: BattleMap[];
   events: EventCard[];
+  categories: Category[];
+  categoryCounts: Record<string, number>;
 }
 
 export type StateResponse = Snapshot & { reference?: Reference };
@@ -43,6 +46,7 @@ async function parse<T>(res: Response): Promise<T> {
 export async function createRoom(input: {
   nickname: string;
   roomName?: string;
+  config?: Record<string, unknown>;
 }): Promise<{ roomId: string; playerId: string; code: string; token: string }> {
   const res = await fetch("/api/rooms", {
     method: "POST",
@@ -81,7 +85,9 @@ export async function fetchState(
 export type ClientAction =
   | { type: "HEARTBEAT" }
   | { type: "READY"; ready: boolean }
-  | { type: "START" }
+  | { type: "START"; mode?: "HOST" | "VOTE" | "RANDOM" }
+  | { type: "PICK_CATEGORY"; categoryIds: string[] }
+  | { type: "VOTE_CATEGORY"; categoryId: string }
   | { type: "BID"; auctionId: string; amount: number }
   | { type: "PASS"; auctionId: string }
   | { type: "CHAT"; body: string }

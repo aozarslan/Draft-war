@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import {
   EngineError,
+  beginCategorySelection,
   beginMapSelection,
-  getCharacters,
+  lockCategory,
   getSnapshot,
   lockBattlefield,
-  roomIdByCode,
+  resolveCategoryAndStart,
   rpcOrThrow,
   runBattle,
 } from "@/lib/server/engine";
 import { authenticate, errorResponse, isNextResponse } from "@/lib/server/session";
-import { buildAuctionQueue, charactersPerPlayer } from "@/lib/game/auction";
-import { randomSeed } from "@/lib/game/rng";
+import { CATEGORIES } from "@/lib/game/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,9 @@ export const dynamic = "force-dynamic";
 type Action =
   | { type: "HEARTBEAT" }
   | { type: "READY"; ready: boolean }
-  | { type: "START" }
+  | { type: "START"; mode?: "HOST" | "VOTE" | "RANDOM" }
+  | { type: "PICK_CATEGORY"; categoryIds: string[] }
+  | { type: "VOTE_CATEGORY"; categoryId: string }
   | { type: "BID"; auctionId: string; amount: number }
   | { type: "PASS"; auctionId: string }
   | { type: "CHAT"; body: string }
@@ -60,23 +62,39 @@ export async function POST(
         return NextResponse.json(result);
       }
 
+      // START no longer jumps straight to the auction: it opens the category
+      // phase, which then starts the game once a category is settled.
       case "START": {
         const snap = await getSnapshot(roomId);
-        const pool = await getCharacters();
-        const perPlayer = charactersPerPlayer(
-          snap.players.length,
-          Math.min(snap.room.config.poolSize, pool.length),
-          snap.room.config.charactersPerPlayer,
+        const mode = action.mode ?? snap.room.config.categoryMode ?? "HOST";
+        await beginCategorySelection(
+          roomId,
+          playerId,
+          mode,
+          snap.room.config.categoryVoteSeconds ?? 25,
         );
-        const seed = randomSeed();
-        const queue = buildAuctionQueue(pool, snap.room.config, seed);
+        // A random draw resolves on its own after the reveal animation; a host
+        // pick and a vote both wait for input.
+        return NextResponse.json({ ok: true, mode });
+      }
 
-        const result = await rpcOrThrow("dw_start_game", {
-          p_room_id: roomId,
+      case "PICK_CATEGORY": {
+        if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
+        const valid = CATEGORIES.map((c) => c.id);
+        const ids = (action.categoryIds ?? [])
+          .filter((id) => valid.includes(id))
+          .slice(0, 4);
+        if (ids.length === 0) {
+          return errorResponse("INVALID_CATEGORY", "Pick at least one category.");
+        }
+        await lockCategory(roomId, ids);
+        return NextResponse.json({ ok: true });
+      }
+
+      case "VOTE_CATEGORY": {
+        const result = await rpcOrThrow("dw_vote_category", {
           p_player_id: playerId,
-          p_seed: seed,
-          p_queue: queue,
-          p_per_player: perPlayer,
+          p_category_id: String(action.categoryId),
         });
         return NextResponse.json(result);
       }
@@ -129,6 +147,9 @@ export async function POST(
         const snap = await getSnapshot(roomId);
 
         switch (snap.room.phase) {
+          case "CATEGORY":
+            await resolveCategoryAndStart(roomId, playerId);
+            break;
           case "TEAM_REVIEW":
             await beginMapSelection(roomId, playerId);
             break;

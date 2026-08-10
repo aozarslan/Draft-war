@@ -1,6 +1,5 @@
 import type { Character, RoomConfig } from "./types";
 import { createRng } from "./rng";
-import { statTotal } from "./characters";
 
 /**
  * ---------------------------------------------------------------------------
@@ -173,20 +172,19 @@ export function validatePass(ctx: PassContext): RuleResult {
 }
 
 /**
- * Anti-snipe: a bid landing inside the final `antiSnipeWindowSeconds` pushes the
- * deadline out by `antiSnipeExtendSeconds`. 3s left + bid -> 8s left.
+ * V2 clock: every accepted bid puts the full clock back rather than nudging the
+ * deadline. A character sells when nobody has answered for a whole
+ * `auctionSeconds` (30 by default), which is much easier to call out loud
+ * across a table than "it added five seconds because you were inside the
+ * window".
+ *
  * Returns the new deadline in epoch ms.
  */
-export function extendDeadline(
-  endsAt: number,
+export function resetDeadline(
   now: number,
-  config: Pick<RoomConfig, "antiSnipeWindowSeconds" | "antiSnipeExtendSeconds">,
+  config: Pick<RoomConfig, "auctionSeconds">,
 ): number {
-  const remainingMs = endsAt - now;
-  if (remainingMs <= config.antiSnipeWindowSeconds * 1000) {
-    return endsAt + config.antiSnipeExtendSeconds * 1000;
-  }
-  return endsAt;
+  return now + config.auctionSeconds * 1000;
 }
 
 /**
@@ -206,28 +204,40 @@ export function shouldResolveEarly(
   return stillLive.length === 0;
 }
 
-/** Builds the ordered list of character ids to auction. */
+/**
+ * Builds the ordered list of character ids to auction.
+ *
+ * `characters` is already filtered to the categories in play. The pool is
+ * SELECTED first and ordered second — with a 50-character category and a
+ * 20-character game, taking the first twenty every time would mean every
+ * Marvel game drafted the same twenty heroes.
+ */
 export function buildAuctionQueue(
   characters: Character[],
   config: Pick<RoomConfig, "auctionOrder" | "poolSize" | "manualOrder">,
   seed: string,
 ): string[] {
-  const pool = characters.slice(0, config.poolSize || characters.length);
+  const size = Math.min(config.poolSize || characters.length, characters.length);
+  const rng = createRng(seed);
 
   switch (config.auctionOrder) {
-    case "POWER":
-      return [...pool]
-        .sort((a, b) => statTotal(b) - statTotal(a))
+    case "POWER": {
+      // Strongest first, and the pool is the strongest `size` of the category.
+      return [...characters]
+        .sort((a, b) => b.gamePower - a.gamePower || a.id.localeCompare(b.id))
+        .slice(0, size)
         .map((c) => c.id);
+    }
     case "MANUAL": {
-      const manual = (config.manualOrder ?? []).filter((id) =>
-        pool.some((c) => c.id === id),
-      );
-      const rest = pool.map((c) => c.id).filter((id) => !manual.includes(id));
-      return [...manual, ...rest];
+      const ids = new Set(characters.map((c) => c.id));
+      const manual = (config.manualOrder ?? []).filter((id) => ids.has(id));
+      const rest = rng
+        .shuffle(characters.map((c) => c.id))
+        .filter((id) => !manual.includes(id));
+      return [...manual, ...rest].slice(0, size);
     }
     case "RANDOM":
     default:
-      return createRng(seed).shuffle(pool.map((c) => c.id));
+      return rng.shuffle(characters.map((c) => c.id)).slice(0, size);
   }
 }

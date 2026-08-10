@@ -2,19 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   buildAuctionQueue,
   charactersPerPlayer,
-  extendDeadline,
   maxAllowedBid,
   minAllowedBid,
+  resetDeadline,
   shouldResolveEarly,
   validateBid,
   validatePass,
   type AuctionState,
   type BidderState,
 } from "../src/lib/game/auction";
-import { CHARACTERS } from "../src/lib/game/characters";
+import { charactersInCategories } from "../src/lib/game/characters";
 import { DEFAULT_CONFIG } from "../src/lib/game/types";
 
 const NOW = 1_700_000_000_000;
+const MARVEL_POOL = charactersInCategories(["marvel"]);
 
 const auction = (over: Partial<AuctionState> = {}): AuctionState => ({
   status: "ACTIVE",
@@ -187,15 +188,16 @@ describe("simultaneous bids", () => {
   });
 });
 
-describe("anti-snipe timer", () => {
-  it("extends only when the bid lands inside the final window", () => {
-    const cfg = { antiSnipeWindowSeconds: 5, antiSnipeExtendSeconds: 5 };
-    // 3 seconds left -> becomes 8.
-    expect(extendDeadline(NOW + 3000, NOW, cfg)).toBe(NOW + 8000);
-    // 12 seconds left -> untouched.
-    expect(extendDeadline(NOW + 12_000, NOW, cfg)).toBe(NOW + 12_000);
-    // Exactly on the boundary counts as inside.
-    expect(extendDeadline(NOW + 5000, NOW, cfg)).toBe(NOW + 10_000);
+describe("bidding clock (V2)", () => {
+  it("puts the whole clock back on every bid, whenever it lands", () => {
+    const cfg = { auctionSeconds: 30 };
+    // Late bid, early bid — both reset to a full 30 seconds.
+    expect(resetDeadline(NOW, cfg)).toBe(NOW + 30_000);
+    expect(resetDeadline(NOW + 9_000, cfg)).toBe(NOW + 39_000);
+  });
+
+  it("honours a custom clock length", () => {
+    expect(resetDeadline(NOW, { auctionSeconds: 15 })).toBe(NOW + 15_000);
   });
 });
 
@@ -255,35 +257,45 @@ describe("early resolution", () => {
 
 describe("auction order", () => {
   it("random order is a permutation and is stable for a seed", () => {
-    const q1 = buildAuctionQueue(CHARACTERS, DEFAULT_CONFIG, "seed-a");
-    const q2 = buildAuctionQueue(CHARACTERS, DEFAULT_CONFIG, "seed-a");
-    const q3 = buildAuctionQueue(CHARACTERS, DEFAULT_CONFIG, "seed-b");
+    const q1 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a");
+    const q2 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a");
+    const q3 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b");
 
     expect(q1).toEqual(q2);
     expect(q1).not.toEqual(q3);
-    expect(new Set(q1).size).toBe(CHARACTERS.length);
+    expect(new Set(q1).size).toBe(DEFAULT_CONFIG.poolSize);
   });
 
-  it("power order is descending by stat total", () => {
+  it("power order is descending by game power", () => {
     const queue = buildAuctionQueue(
-      CHARACTERS,
+      MARVEL_POOL,
       { ...DEFAULT_CONFIG, auctionOrder: "POWER" },
       "x",
     );
-    const totals = queue.map((id) => {
-      const c = CHARACTERS.find((x) => x.id === id)!;
-      return c.power + c.speed + c.defense + c.tactics + c.special;
-    });
-    expect([...totals].sort((a, b) => b - a)).toEqual(totals);
+    const powers = queue.map(
+      (id) => MARVEL_POOL.find((x) => x.id === id)!.gamePower,
+    );
+    expect([...powers].sort((a, b) => b - a)).toEqual(powers);
   });
 
   it("manual order puts the chosen ids first and keeps the rest", () => {
+    const first = MARVEL_POOL[7].id;
+    const second = MARVEL_POOL[3].id;
     const queue = buildAuctionQueue(
-      CHARACTERS,
-      { ...DEFAULT_CONFIG, auctionOrder: "MANUAL", manualOrder: ["nash-riggs", "milo-reyes"] },
+      MARVEL_POOL,
+      { ...DEFAULT_CONFIG, auctionOrder: "MANUAL", manualOrder: [first, second] },
       "x",
     );
-    expect(queue.slice(0, 2)).toEqual(["nash-riggs", "milo-reyes"]);
-    expect(queue).toHaveLength(CHARACTERS.length);
+    expect(queue.slice(0, 2)).toEqual([first, second]);
+    expect(queue).toHaveLength(DEFAULT_CONFIG.poolSize);
+  });
+
+  it("draws the pool from the whole category, not just its first entries", () => {
+    // A 50-character category must not always produce the same twenty.
+    const a = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a"));
+    const b = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b"));
+    const overlap = [...a].filter((id) => b.has(id)).length;
+    expect(a.size).toBe(DEFAULT_CONFIG.poolSize);
+    expect(overlap).toBeLessThan(DEFAULT_CONFIG.poolSize);
   });
 });

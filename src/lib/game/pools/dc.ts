@@ -1,0 +1,62 @@
+import type { PoolEntry } from "../types";
+
+/**
+ * DC — stats in order: power, speed, durability, combat, intelligence, special.
+ *
+ * Balance intent: DC's ceiling is higher than Marvel's on raw power (Superman,
+ * Darkseid) but its mid-tier leans on intellect and combat, so a Batman squad
+ * beats a badly built Kryptonian one. Game ratings for DRAFT WAR, not an
+ * official DC ranking.
+ */
+export const DC: PoolEntry[] = [
+  { n: "Superman", u: "DC Comics", v: "Comics", t: "The last son of Krypton", g: ["justice-league", "cosmic", "leader"], s: [100, 100, 100, 84, 80, 94], ab: ["Heat Vision", "Super Breath"] },
+  { n: "Batman", u: "DC Comics", v: "Comics", t: "The world's greatest detective", g: ["justice-league", "bat-family", "tactical", "stealth"], s: [55, 70, 60, 95, 98, 88], ab: ["Prep Time", "Batarang"] },
+  { n: "Wonder Woman", u: "DC Comics", v: "Comics", t: "Themysciran champion", g: ["justice-league", "melee", "leader"], s: [92, 86, 92, 96, 84, 88], ab: ["Lasso of Truth", "Bracer Deflect"] },
+  { n: "The Flash", u: "DC Comics", v: "Comics", t: "The fastest man alive", g: ["justice-league", "mobility"], s: [82, 100, 70, 74, 84, 96], ab: ["Speed Force", "Infinite Mass Punch"] },
+  { n: "Green Lantern", u: "DC Comics", v: "Comics", t: "In brightest day", g: ["justice-league", "cosmic", "ranged"], s: [92, 82, 84, 70, 82, 96], ab: ["Constructs", "Willpower Shield"] },
+  { n: "Aquaman", u: "DC Comics", v: "Comics", t: "King of the seven seas", g: ["justice-league", "leader", "melee"], s: [90, 76, 92, 86, 78, 82], ab: ["Trident Strike", "Tidal Command"] },
+  { n: "Cyborg", u: "DC Comics", v: "Comics", t: "Booyah", g: ["justice-league", "titans", "tech", "ranged"], s: [84, 74, 88, 76, 92, 86], ab: ["Sonic Cannon", "System Hack"] },
+  { n: "Shazam", u: "DC Comics", v: "Comics", t: "Say the word", g: ["justice-league", "cosmic"], s: [94, 88, 92, 70, 66, 92], ab: ["Lightning Bolt", "Wisdom of Solomon"] },
+  { n: "Green Arrow", u: "DC Comics", v: "Comics", t: "You have failed this city", g: ["justice-league", "marksman", "ranged", "tactical"], s: [52, 68, 58, 86, 84, 76], ab: ["Trick Arrow", "Overwatch"] },
+  { n: "Supergirl", u: "DC Comics", v: "Comics", t: "Kryptonian, unleashed", g: ["justice-league", "cosmic", "mobility"], s: [96, 94, 94, 72, 76, 88], ab: ["Heat Vision", "Flight Charge"] },
+  { n: "Raven", u: "DC Comics", v: "Comics", t: "Daughter of Trigon", g: ["titans", "cosmic"], s: [92, 68, 66, 60, 84, 96], ab: ["Soul Self", "Dark Portal"] },
+  { n: "Zatanna", u: "DC Comics", v: "Comics", t: "Backwards and dangerous", g: ["justice-league", "cosmic"], s: [86, 64, 60, 58, 90, 98], ab: ["Reversed Incantation", "Banish"] },
+  { n: "Darkseid", u: "DC Comics", v: "Comics", t: "The tyrant of Apokolips", g: ["villain", "cosmic", "leader"], s: [99, 76, 98, 84, 92, 96], ab: ["Omega Beams", "Boom Tube"] },
+  { n: "Joker", u: "DC Comics", v: "Comics", t: "Why so serious", g: ["villain", "tactical"], s: [46, 58, 52, 70, 94, 90], ab: ["Joker Venom", "Unpredictable"] },
+  { n: "Harley Quinn", u: "DC Comics", v: "Comics", t: "Puddin'", g: ["villain", "brawler", "mobility"], s: [56, 76, 62, 82, 78, 84], ab: ["Mallet Swing", "Acrobatics"] },
+  { n: "Deathstroke", u: "DC Comics", v: "Comics", t: "The terminator", g: ["villain", "assassin", "tactical", "melee"], s: [72, 80, 78, 96, 92, 82], ab: ["Precognitive Combat", "Sword and Gun"] },
+  { n: "Nightwing", u: "DC Comics", v: "Comics", t: "Out of the cave", g: ["bat-family", "titans", "mobility", "melee"], s: [58, 82, 66, 92, 88, 80], ab: ["Escrima Sticks", "Aerial Takedown"] },
+  { n: "Black Adam", u: "DC Comics", v: "Comics", t: "The man in black", g: ["villain", "cosmic"], s: [96, 88, 94, 78, 76, 92], ab: ["Lightning Storm", "Judgement"] },
+  { n: "Martian Manhunter", u: "DC Comics", v: "Comics", t: "The last Martian", g: ["justice-league", "cosmic"], s: [94, 84, 92, 78, 94, 96], ab: ["Phase Shift", "Telepathy"] },
+  { n: "Catwoman", u: "DC Comics", v: "Comics", t: "Nine lives", g: ["bat-family", "stealth", "mobility"], s: [46, 80, 56, 84, 84, 82], ab: ["Whip Snap", "Vanishing Act"] },
+  { n: "Batgirl", u: "DC Comics", v: "Comics", t: "The other detective", g: ["bat-family", "tactical", "melee"], s: [50, 76, 58, 86, 92, 78], ab: ["Grapnel", "Data Sweep"] },
+  { n: "Red Hood", w: "Jason Todd", u: "DC Comics", v: "Comics", t: "The one who came back", g: ["bat-family", "marksman", "ranged"], s: [58, 74, 70, 88, 82, 78], ab: ["Twin Pistols", "No Rules"] },
+  { n: "Robin", u: "DC Comics", v: "Comics", t: "The boy wonder", g: ["bat-family", "titans", "mobility"], s: [46, 76, 54, 82, 84, 74], ab: ["Bo Staff", "Distraction"] },
+  { n: "Lex Luthor", u: "DC Comics", v: "Comics", t: "The smartest man alive", g: ["villain", "tech", "tactical"], s: [76, 58, 80, 62, 99, 88], ab: ["Warsuit", "Kryptonite Edge"] },
+  { n: "Bane", u: "DC Comics", v: "Comics", t: "He broke the bat", g: ["villain", "brawler", "melee"], s: [86, 62, 88, 88, 86, 78], ab: ["Venom Surge", "Backbreaker"] },
+  { n: "Poison Ivy", u: "DC Comics", v: "Comics", t: "Nature's revenge", g: ["villain"], s: [80, 56, 62, 58, 88, 92], ab: ["Vine Snare", "Toxin Cloud"] },
+  { n: "Killer Croc", u: "DC Comics", v: "Comics", t: "Something in the sewers", g: ["villain", "brawler", "survival"], s: [84, 62, 90, 74, 48, 72], ab: ["Savage Bite", "Thick Hide"] },
+  { n: "Mr. Freeze", u: "DC Comics", v: "Comics", t: "Cold hearted", g: ["villain", "tech", "ranged"], s: [78, 50, 80, 60, 92, 88], ab: ["Freeze Ray", "Ice Wall"] },
+  { n: "Scarecrow", u: "DC Comics", v: "Comics", t: "Fear itself", g: ["villain", "stealth"], s: [48, 60, 52, 62, 92, 94], ab: ["Fear Toxin", "Hallucination"] },
+  { n: "Ra's al Ghul", u: "DC Comics", v: "Comics", t: "The demon's head", g: ["villain", "leader", "melee", "tactical"], s: [62, 70, 68, 92, 94, 84], ab: ["Lazarus Pit", "League Command"] },
+  { n: "Doomsday", u: "DC Comics", v: "Comics", t: "The thing that killed Superman", g: ["villain", "brawler", "survival"], s: [99, 70, 99, 66, 34, 90], ab: ["Adaptation", "Bone Spurs"] },
+  { n: "Brainiac", u: "DC Comics", v: "Comics", t: "The collector of worlds", g: ["villain", "tech", "cosmic"], s: [88, 66, 88, 60, 100, 94], ab: ["Shrink Ray", "Drone Fleet"] },
+  { n: "Reverse-Flash", u: "DC Comics", v: "Comics", t: "The mirror of the speedster", g: ["villain", "mobility"], s: [82, 98, 68, 76, 90, 94], ab: ["Negative Speed Force", "Time Sabotage"] },
+  { n: "Sinestro", u: "DC Comics", v: "Comics", t: "In blackest night", g: ["villain", "cosmic", "ranged"], s: [92, 80, 82, 74, 88, 94], ab: ["Fear Constructs", "Yellow Ring"] },
+  { n: "Hawkman", u: "DC Comics", v: "Comics", t: "Reborn, again", g: ["justice-league", "melee", "mobility"], s: [82, 78, 84, 88, 74, 78], ab: ["Nth Metal Mace", "Dive Bomb"] },
+  { n: "Hawkgirl", u: "DC Comics", v: "Comics", t: "Wings and a mace", g: ["justice-league", "melee", "mobility"], s: [78, 82, 78, 86, 74, 78], ab: ["Mace Smash", "Air Superiority"] },
+  { n: "Starfire", w: "Starfire (Teen Titans)", u: "DC Comics", v: "Comics", t: "Tamaranean princess", g: ["titans", "cosmic", "ranged"], s: [88, 84, 84, 74, 70, 86], ab: ["Starbolt", "Flight"] },
+  { n: "Beast Boy", u: "DC Comics", v: "Comics", t: "Any animal, any time", g: ["titans", "mobility"], s: [72, 80, 70, 72, 68, 92], ab: ["Shapeshift", "Stampede"] },
+  { n: "Cyborg Superman", u: "DC Comics", v: "Comics", t: "The wrong resurrection", g: ["villain", "tech", "cosmic"], s: [92, 80, 94, 70, 92, 88], ab: ["Rebuild", "Solar Cannon"] },
+  { n: "Steel", u: "DC Comics", v: "Comics", t: "The man of iron", g: ["justice-league", "tech", "melee"], s: [80, 62, 88, 78, 92, 74], ab: ["Hammer Throw", "Armour Plating"] },
+  { n: "Blue Beetle", u: "DC Comics", v: "Comics", t: "Scarab bound", g: ["justice-league", "tech", "ranged"], s: [82, 76, 82, 70, 82, 90], ab: ["Scarab Cannon", "Adaptive Armour"] },
+  { n: "Booster Gold", u: "DC Comics", v: "Comics", t: "The hero from tomorrow", g: ["justice-league", "tech"], s: [72, 76, 78, 66, 78, 84], ab: ["Force Field", "Time Knowledge"] },
+  { n: "John Constantine", u: "DC Comics", v: "Comics", t: "The hellblazer", g: ["tactical"], s: [70, 52, 50, 56, 96, 96], ab: ["Demon Deal", "Binding Sigil"] },
+  { n: "Swamp Thing", u: "DC Comics", v: "Comics", t: "The green", g: ["survival"], s: [90, 48, 96, 66, 80, 92], ab: ["Regrowth", "Root Grasp"] },
+  { n: "Etrigan the Demon", u: "DC Comics", v: "Comics", t: "Rhyming hellfire", g: ["villain", "brawler"], s: [90, 70, 88, 78, 76, 92], ab: ["Hellfire Breath", "Demon Form"] },
+  { n: "Deadman", u: "DC Comics", v: "Comics", t: "Dead and working", g: ["stealth"], s: [60, 76, 90, 54, 80, 96], ab: ["Possession", "Intangible"] },
+  { n: "Wonder Girl", u: "DC Comics", v: "Comics", t: "The next Amazon", g: ["titans", "melee"], s: [84, 78, 82, 84, 72, 76], ab: ["Lasso Sweep", "Amazon Charge"] },
+  { n: "Firestorm", u: "DC Comics", v: "Comics", t: "The nuclear man", g: ["justice-league", "cosmic", "ranged"], s: [90, 76, 78, 62, 88, 94], ab: ["Transmutation", "Nuclear Blast"] },
+  { n: "Vixen", w: "Vixen (character)", u: "DC Comics", v: "Comics", t: "The animal within", g: ["justice-league", "melee", "mobility"], s: [76, 82, 74, 84, 76, 88], ab: ["Tantu Totem", "Beast Strength"] },
+  { n: "Captain Cold", u: "DC Comics", v: "Comics", t: "Rogue with a code", g: ["villain", "ranged", "tactical"], s: [70, 60, 66, 66, 86, 86], ab: ["Cold Gun", "Rogue Rules"] },
+];

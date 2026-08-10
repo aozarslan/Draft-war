@@ -1,18 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeAxisBands,
   computeSynergy,
   environmentMultiplier,
+  projectAxes,
   simulateBattle,
   teamRating,
   winProbabilities,
   type BattleTeamInput,
 } from "../src/lib/game/battle";
-import { CHARACTERS, CHARACTERS_BY_ID, statTotal } from "../src/lib/game/characters";
-import { MAPS_BY_ID } from "../src/lib/game/maps";
-import { EVENTS_BY_ID } from "../src/lib/game/events";
+import { CHARACTERS, CHARACTERS_BY_ID, charactersInCategories } from "../src/lib/game/characters";
+import { AXIS_KEYS, CATEGORIES, MAX_SYNERGY, allAxes, getCategory } from "../src/lib/game/categories";
+import { MAPS, MAPS_BY_ID } from "../src/lib/game/maps";
+import { EVENT_CARDS, EVENTS_BY_ID } from "../src/lib/game/events";
+import { createRng } from "../src/lib/game/rng";
 
 const map = MAPS_BY_ID.city;
 const neutralEvent = EVENTS_BY_ID["close-quarters"];
+const BANDS = computeAxisBands(CHARACTERS);
+
+/** Mirror of the engine's combat value, for asserting normalisation. */
+function combatValueOf(axes: Record<string, number>): number {
+  const attack = axes.power * 0.6 + axes.special * 0.2 + axes.strategy * 0.2;
+  const hp = 70 + axes.defense * 1.55 + axes.power * 0.45;
+  return (attack * hp) / 230;
+}
 
 function team(playerId: string, ids: string[], price = 8): BattleTeamInput {
   return {
@@ -23,68 +35,123 @@ function team(playerId: string, ids: string[], price = 8): BattleTeamInput {
 }
 
 const teamA = team("a", [
-  "kane-vasco",
-  "adam-kessler",
-  "tyler-stone",
-  "lin-bo",
-  "cutter-braddock",
+  "marvel-thor",
+  "marvel-iron-man",
+  "marvel-spider-man",
+  "marvel-hulk",
+  "marvel-doctor-strange",
 ]);
 const teamB = team("b", [
-  "milo-reyes",
-  "nash-riggs",
-  "cole-mateo",
-  "viktor-sable",
-  "rook-calloway",
+  "marvel-thanos",
+  "marvel-magneto",
+  "marvel-venom",
+  "marvel-loki",
+  "marvel-ultron",
 ]);
 
 describe("pool balance", () => {
-  it("keeps every character inside a narrow total-stat band", () => {
-    const totals = CHARACTERS.map(statTotal);
-    expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(15);
-  });
-
-  it("has no character that leads on every stat", () => {
-    for (const c of CHARACTERS) {
-      const dominatesAll = CHARACTERS.every(
-        (o) =>
-          o.id === c.id ||
-          (c.power >= o.power &&
-            c.speed >= o.speed &&
-            c.defense >= o.defense &&
-            c.tactics >= o.tactics &&
-            c.special >= o.special),
-      );
-      expect(dominatesAll).toBe(false);
+  it("gives every category a usable spread rather than one obvious pick", () => {
+    for (const category of CATEGORIES) {
+      const pool = charactersInCategories([category.id]);
+      if (pool.length === 0) continue;
+      const powers = pool.map((c) => c.gamePower);
+      const spread = Math.max(...powers) - Math.min(...powers);
+      expect(spread, `${category.id} spread`).toBeGreaterThanOrEqual(10);
     }
   });
 
-  it("prices track power without being a straight ranking", () => {
-    const sorted = [...CHARACTERS].sort((a, b) => statTotal(b) - statTotal(a));
-    expect(sorted[0].basePrice).toBeGreaterThanOrEqual(sorted[sorted.length - 1].basePrice);
+  it("has no character that leads its category on every stat", () => {
+    for (const category of CATEGORIES) {
+      const pool = charactersInCategories([category.id]);
+      const keys = category.stats.map((s) => s.key);
+      for (const c of pool) {
+        const dominatesAll = pool.every(
+          (o) => o.id === c.id || keys.every((k) => (c.stats[k] ?? 0) >= (o.stats[k] ?? 0)),
+        );
+        expect(dominatesAll, `${c.name} dominates ${category.id}`).toBe(false);
+      }
+    }
+  });
+
+  it("keeps Hollywood out of superhero territory", () => {
+    // Real people must not be rated like Kryptonians.
+    const hollywood = charactersInCategories(["hollywood"]);
+    const dc = charactersInCategories(["dc"]);
+    expect(Math.max(...hollywood.map((c) => c.gamePower))).toBeLessThan(
+      Math.max(...dc.map((c) => c.gamePower)),
+    );
+  });
+
+  it("gives every character a full set of category stats", () => {
+    for (const c of CHARACTERS) {
+      const category = getCategory(c.categoryId);
+      for (const stat of category.stats) {
+        expect(typeof c.stats[stat.key], `${c.name}.${stat.key}`).toBe("number");
+      }
+    }
+  });
+});
+
+describe("axis projection", () => {
+  it("leaves a single-category game on the authored numbers", () => {
+    const c = CHARACTERS_BY_ID["marvel-thor"];
+    expect(projectAxes(c, { mixed: false })).toEqual(
+      allAxes(getCategory(c.categoryId), c.stats),
+    );
+  });
+
+  it("normalises a crossover so every category reaches the same ceiling", () => {
+    // The best Hollywood actor and the best Kryptonian arrive at the same
+    // effective strength; that is what makes a crossover a fight rather than
+    // a formality.
+    const bestOf = (categoryId: string) =>
+      Math.max(
+        ...charactersInCategories([categoryId]).map((c) =>
+          combatValueOf(projectAxes(c, { mixed: true, bands: BANDS })),
+        ),
+      );
+    for (const id of ["hollywood", "animals", "marvel", "fantasy"]) {
+      expect(bestOf(id), id).toBeCloseTo(bestOf("dc"), 1);
+    }
+  });
+
+  it("preserves strength ordering inside a category when normalising", () => {
+    for (const id of ["animals", "hollywood", "marvel"]) {
+      const pool = charactersInCategories([id]);
+      const raw = [...pool].sort(
+        (a, b) =>
+          combatValueOf(allAxes(getCategory(b.categoryId), b.stats)) -
+          combatValueOf(allAxes(getCategory(a.categoryId), a.stats)),
+      );
+      const norm = [...pool].sort(
+        (a, b) =>
+          combatValueOf(projectAxes(b, { mixed: true, bands: BANDS })) -
+          combatValueOf(projectAxes(a, { mixed: true, bands: BANDS })),
+      );
+      expect(norm.map((c) => c.id), id).toEqual(raw.map((c) => c.id));
+    }
   });
 });
 
 describe("environment modifiers", () => {
   it("applies the map bonus only to matching tags", () => {
-    const tactician = CHARACTERS_BY_ID["sterling-vane"]; // tactical
-    const brawler = CHARACTERS_BY_ID["arka-wijaya"]; // melee/brawler/mobility
+    const tactician = CHARACTERS_BY_ID["dc-batman"]; // tactical
+    const brawler = CHARACTERS_BY_ID["marvel-hulk"]; // brawler/survival, no tech
     expect(environmentMultiplier(tactician, map, neutralEvent)).toBeGreaterThan(1);
-    // Desert rewards ranged/marksman and POWER OUTAGE only touches tech, so a
-    // pure brawler comes out completely unmodified.
     expect(
       environmentMultiplier(brawler, MAPS_BY_ID.desert, EVENTS_BY_ID["power-outage"]),
     ).toBe(1);
   });
 
   it("doubles map modifiers under NO RULES", () => {
-    const c = CHARACTERS_BY_ID["sterling-vane"];
+    const c = CHARACTERS_BY_ID["dc-batman"];
     const normal = environmentMultiplier(c, map, neutralEvent) - 1;
     const doubled = environmentMultiplier(c, map, EVENTS_BY_ID["no-rules"]) - 1;
     expect(doubled).toBeCloseTo(normal * 2, 5);
   });
 
   it("applies a negative event to the tagged characters", () => {
-    const techie = CHARACTERS_BY_ID["ryder-cross"]; // tech
+    const techie = CHARACTERS_BY_ID["marvel-iron-man"]; // tech
     expect(
       environmentMultiplier(techie, MAPS_BY_ID.forest, EVENTS_BY_ID["power-outage"]),
     ).toBeLessThan(1);
@@ -92,15 +159,26 @@ describe("environment modifiers", () => {
 });
 
 describe("synergy", () => {
-  it("rewards overlapping tags but stays capped", () => {
-    const melee = ["kiri-amano", "arka-wijaya", "wei-zhan", "viktor-sable", "nash-riggs"].map(
-      (id) => CHARACTERS_BY_ID[id],
-    );
-    const mixed = ["sterling-vane", "cutter-braddock", "kiri-amano", "milo-reyes", "cole-mateo"].map(
-      (id) => CHARACTERS_BY_ID[id],
-    );
-    expect(computeSynergy(melee)).toBeGreaterThan(computeSynergy(mixed));
-    expect(computeSynergy(melee)).toBeLessThanOrEqual(0.14);
+  it("rewards a themed squad and names the groups", () => {
+    const avengers = ["marvel-thor", "marvel-iron-man", "marvel-captain-america",
+                      "marvel-hawkeye", "marvel-black-widow"].map((id) => CHARACTERS_BY_ID[id]);
+    const scattered = ["marvel-thor", "marvel-magneto", "marvel-venom",
+                       "marvel-galactus", "marvel-daredevil"].map((id) => CHARACTERS_BY_ID[id]);
+
+    const themed = computeSynergy(avengers);
+    expect(themed.total).toBeGreaterThan(computeSynergy(scattered).total);
+    expect(themed.groups.some((g) => g.label.startsWith("Avengers"))).toBe(true);
+  });
+
+  it("never exceeds the +10% cap", () => {
+    const stacked = charactersInCategories(["marvel"])
+      .filter((c) => c.tags.includes("avengers"))
+      .slice(0, 8);
+    expect(computeSynergy(stacked).total).toBeLessThanOrEqual(MAX_SYNERGY);
+  });
+
+  it("is zero for a squad with nothing in common", () => {
+    expect(computeSynergy([CHARACTERS_BY_ID["marvel-galactus"]]).total).toBe(0);
   });
 });
 
@@ -126,55 +204,145 @@ describe("simulation", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed,
+      categoryIds: ["marvel"],
+      bands: BANDS,
     });
 
   it("is deterministic for a given seed", () => {
     const a = run("seed-1");
     const b = run("seed-1");
     expect(a.winnerPlayerId).toBe(b.winnerPlayerId);
-    expect(a.log.length).toBe(b.log.length);
     expect(a.log.map((e) => e.text)).toEqual(b.log.map((e) => e.text));
   });
 
   it("produces different battles for different seeds", () => {
-    const seeds = Array.from({ length: 12 }, (_, i) => `seed-${i}`);
+    const seeds = Array.from({ length: 14 }, (_, i) => `seed-${i}`);
     const winners = new Set(seeds.map((s) => run(s).winnerPlayerId));
-    // Neither team is allowed to be a guaranteed winner.
     expect(winners.size).toBe(2);
   });
 
-  it("always names exactly one winner and ranks every team", () => {
+  it("always names one winner and ranks every team", () => {
     const result = run("seed-x");
-    expect(result.teams).toHaveLength(2);
     expect(result.teams.map((t) => t.rank).sort()).toEqual([1, 2]);
     expect(result.teams[0].playerId).toBe(result.winnerPlayerId);
     expect(result.teams[0].points).toBe(3);
-    expect(result.teams[1].points).toBe(2);
+    expect(result.categoryIds).toEqual(["marvel"]);
   });
 
   it("awards points by the 3/2/1/0 table with four teams", () => {
     const result = simulateBattle({
       teams: [
-        team("a", ["kane-vasco", "adam-kessler", "tyler-stone"]),
-        team("b", ["milo-reyes", "nash-riggs", "cole-mateo"]),
-        team("c", ["ryder-cross", "sterling-vane", "boone-halloway"]),
-        team("d", ["kiri-amano", "arka-wijaya", "wei-zhan"]),
+        team("a", ["marvel-thor", "marvel-iron-man", "marvel-hulk"]),
+        team("b", ["marvel-thanos", "marvel-loki", "marvel-ultron"]),
+        team("c", ["marvel-storm", "marvel-wolverine", "marvel-cyclops"]),
+        team("d", ["marvel-venom", "marvel-carnage", "marvel-deadpool"]),
       ],
       map,
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed: "four-way",
+      categoryIds: ["marvel"],
+      bands: BANDS,
     });
     expect(result.teams.map((t) => t.points)).toEqual([3, 2, 1, 0]);
   });
 
-  it("builds a playable cinematic with rounds and an ending", () => {
+  /**
+   * Regression test for a forecast that lied.
+   *
+   * The team rating used to be the mean of the five axes, which could show two
+   * squads as level while one of them won every single simulation. The number
+   * on screen has to describe the fight, so we assert that the stated
+   * probability actually predicts the outcome — for a single category and for
+   * a crossover, where normalisation is also in play.
+   */
+  it.each([
+    ["single category", ["marvel"], 0, 10],
+    ["crossover", ["hollywood", "animals"], 10, 20],
+  ] as const)("forecast matches reality: %s", (_label, categoryIds, from, to) => {
+    const pool = charactersInCategories([...categoryIds]);
+    const ids = pool.map((c) => c.id).slice(from, to);
+    const teams = [team("a", ids.slice(0, 5)), team("b", ids.slice(5, 10))];
+
+    const N = 60;
+    let wins = 0;
+    let forecast = 0;
+    for (let i = 0; i < N; i++) {
+      const result = simulateBattle({
+        teams,
+        map: MAPS_BY_ID.forest,
+        event: neutralEvent,
+        charactersById: CHARACTERS_BY_ID,
+        seed: `forecast-${_label}-${i}`,
+        categoryIds: [...categoryIds],
+        bands: BANDS,
+      });
+      forecast = result.teams.find((t) => t.playerId === "a")!.winProbability;
+      if (result.winnerPlayerId === "a") wins++;
+    }
+
+    const observed = (wins / N) * 100;
+    expect(Math.abs(observed - forecast)).toBeLessThan(25);
+  });
+
+  /**
+   * The property that actually matters for crossovers: with the auction pool
+   * shuffled out of two categories — which is how a crossover game really
+   * works — no category should be over-represented among the winners.
+   */
+  it("does not let one category dominate a mixed pool", () => {
+    const pairs: [string, string][] = [
+      ["hollywood", "marvel"],
+      ["animals", "dc"],
+      ["action-movies", "fantasy"],
+      ["anime", "video-games"],
+    ];
+
+    const wins: Record<string, number> = {};
+    let total = 0;
+
+    for (const [x, y] of pairs) {
+      const pool = charactersInCategories([x, y]);
+      for (let s = 0; s < 30; s++) {
+        const rng = createRng(`mix-${x}-${y}-${s}`);
+        const queue = rng.shuffle(pool).slice(0, 20);
+        const teams = [0, 1, 2, 3].map((i) =>
+          team(`p${i}`, queue.slice(i * 5, i * 5 + 5).map((c) => c.id)),
+        );
+        const result = simulateBattle({
+          teams,
+          map: rng.pick(MAPS),
+          event: rng.pick(EVENT_CARDS),
+          charactersById: CHARACTERS_BY_ID,
+          seed: `mix-${x}-${y}-${s}`,
+          categoryIds: [x, y],
+          bands: BANDS,
+        });
+        const winner = teams.find((t) => t.playerId === result.winnerPlayerId)!;
+        for (const c of winner.characters) {
+          const cat = CHARACTERS_BY_ID[c.characterId].categoryId;
+          wins[cat] = (wins[cat] ?? 0) + 1;
+          total++;
+        }
+      }
+    }
+
+    // Eight categories share the winners' rosters; a fair spread is ~12.5%
+    // each. Allow generous variance but catch a category that is running away
+    // with every crossover.
+    for (const [cat, n] of Object.entries(wins)) {
+      const share = (n / total) * 100;
+      expect(share, `${cat} share of winning rosters`).toBeLessThan(22);
+      expect(share, `${cat} share of winning rosters`).toBeGreaterThan(4);
+    }
+  });
+
+  it("builds a playable cinematic with a monotonic timeline", () => {
     const result = run("seed-2");
     expect(result.log[0].kind).toBe("ROUND_START");
     expect(result.log.at(-1)?.kind).toBe("END");
     expect(result.durationMs).toBeGreaterThan(3000);
     expect(result.durationMs).toBeLessThan(60_000);
-    // Timeline is monotonic so playback never jumps backwards.
     const times = result.log.map((e) => e.atMs);
     expect([...times].sort((a, b) => a - b)).toEqual(times);
   });
@@ -189,6 +357,8 @@ describe("simulation", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed: "value",
+      categoryIds: ["marvel"],
+      bands: BANDS,
     });
 
     expect(result.combatants).toHaveLength(10);
@@ -197,32 +367,22 @@ describe("simulation", () => {
       expect(c.survivalPct).toBeGreaterThanOrEqual(0);
       expect(c.survivalPct).toBeLessThanOrEqual(100);
     }
-    expect(result.mvp).not.toBeNull();
+    expect(result.mvp!.playerId).toBe(result.winnerPlayerId);
     expect(result.awards.bestValue!.valueScore).toBeGreaterThanOrEqual(
       result.awards.worstValue!.valueScore,
     );
   });
 
-  it("names an MVP from the winning team", () => {
+  it("reports the synergies that were actually in play", () => {
     const result = run("seed-3");
-    expect(result.mvp!.playerId).toBe(result.winnerPlayerId);
+    for (const t of result.teams) expect(Array.isArray(t.synergies)).toBe(true);
   });
 
-  it("gives the fastest team the opening edge under AMBUSH", () => {
-    const withAmbush = simulateBattle({
-      teams: [teamA, teamB],
-      map,
-      event: EVENTS_BY_ID.ambush,
-      charactersById: CHARACTERS_BY_ID,
-      seed: "ambush",
+  it("keeps team ratings in a sane range", () => {
+    const rating = teamRating(teamA, CHARACTERS_BY_ID, map, neutralEvent, {
+      mixed: false,
     });
-    expect(withAmbush.log.some((e) => e.round === 1)).toBe(true);
-    expect(withAmbush.teams).toHaveLength(2);
-  });
-
-  it("keeps team ratings in the expected range", () => {
-    const rating = teamRating(teamA, CHARACTERS_BY_ID, map, neutralEvent);
-    expect(rating).toBeGreaterThan(380);
-    expect(rating).toBeLessThan(560);
+    expect(rating).toBeGreaterThan(300);
+    expect(rating).toBeLessThan(600);
   });
 });

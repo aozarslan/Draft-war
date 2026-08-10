@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RoomStore } from "@/lib/client/useRoom";
 import type { BattleLogEntry, BattleMap, Character, EventCard } from "@/lib/game/types";
 import { playerColor } from "@/lib/game/colors";
+import { getCategory } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
 import { Panel, SectionTitle } from "./ui";
 
@@ -101,6 +102,18 @@ export function BattleStage({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-center gap-2 text-center">
+        {(result.categoryIds ?? []).map((id) => {
+          const c = getCategory(id);
+          return (
+            <span
+              key={id}
+              className="rounded-full border px-3 py-1 text-xs font-black"
+              style={{ borderColor: `${c.accent}66`, color: c.accent }}
+            >
+              {c.icon} {c.name}
+            </span>
+          );
+        })}
         <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold">
           {map?.icon} {map?.name}
         </span>

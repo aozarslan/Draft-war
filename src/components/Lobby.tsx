@@ -7,10 +7,17 @@ import { charactersPerPlayer } from "@/lib/game/auction";
 import { Panel, SectionTitle } from "./ui";
 import { play } from "@/lib/client/sound";
 
+const CATEGORY_MODES = [
+  { id: "HOST", label: "I choose", hint: "You pick the category" },
+  { id: "VOTE", label: "We vote", hint: "Everyone votes, most wins" },
+  { id: "RANDOM", label: "Surprise us", hint: "Drawn at random" },
+] as const;
+
 export function Lobby({ store }: { store: RoomStore }) {
   const { snapshot, me, act } = store;
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"HOST" | "VOTE" | "RANDOM">("HOST");
 
   if (!snapshot) return null;
   const { room, players } = snapshot;
@@ -39,7 +46,7 @@ export function Lobby({ store }: { store: RoomStore }) {
 
   async function startGame() {
     setBusy(true);
-    await act({ type: "START" });
+    await act({ type: "START", mode });
     setBusy(false);
   }
 
@@ -164,6 +171,32 @@ export function Lobby({ store }: { store: RoomStore }) {
         </div>
       </Panel>
 
+      {me?.isHost ? (
+        <Panel>
+          <SectionTitle>How do we pick the category?</SectionTitle>
+          <div className="grid grid-cols-3 gap-2 px-4 pb-4">
+            {CATEGORY_MODES.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  play("click");
+                  setMode(m.id);
+                }}
+                aria-pressed={mode === m.id}
+                className="rounded-xl border px-2 py-3 text-center transition"
+                style={{
+                  borderColor: mode === m.id ? "#22d3ee" : "rgba(255,255,255,0.1)",
+                  background: mode === m.id ? "rgba(34,211,238,0.12)" : "transparent",
+                }}
+              >
+                <div className="text-xs font-black uppercase tracking-wide">{m.label}</div>
+                <div className="mt-0.5 text-[10px] text-white/40">{m.hint}</div>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+
       <div className="sticky bottom-3 z-20 space-y-2">
         <button
           className={`btn w-full ${me?.isReady ? "" : "btn-primary"}`}
@@ -182,7 +215,7 @@ export function Lobby({ store }: { store: RoomStore }) {
             onClick={startGame}
           >
             {busy
-              ? "Starting auction…"
+              ? "Opening category select…"
               : !enoughPlayers
                 ? `Need ${room.config.minPlayers} players`
                 : !everyoneReady

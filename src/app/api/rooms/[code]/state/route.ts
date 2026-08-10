@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
-import { EngineError, getCharacters, getSnapshot, roomIdByCode, tickRoom } from "@/lib/server/engine";
+import {
+  EngineError,
+  categoryCounts,
+  getCharacters,
+  getSnapshot,
+  roomIdByCode,
+  tickRoom,
+} from "@/lib/server/engine";
 import { errorResponse } from "@/lib/server/session";
 import { EVENT_CARDS } from "@/lib/game/events";
 import { MAPS } from "@/lib/game/maps";
+import { CATEGORIES } from "@/lib/game/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +45,8 @@ export async function GET(
           characters: await getCharacters(),
           maps: MAPS,
           events: EVENT_CARDS,
+          categories: CATEGORIES,
+          categoryCounts: await categoryCounts(),
         },
       });
     }

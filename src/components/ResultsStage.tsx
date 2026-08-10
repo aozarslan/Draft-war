@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { RoomStore } from "@/lib/client/useRoom";
 import type { BattleMap, Character, CombatantResult, EventCard } from "@/lib/game/types";
 import { playerColor } from "@/lib/game/colors";
+import { getCategory } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
 import { CharacterArt } from "./CharacterArt";
 import { Panel, SectionTitle } from "./ui";
@@ -37,6 +38,7 @@ export function ResultsStage({
       "DRAFT WAR",
       `🏆 ${winner?.nickname ?? "—"}`,
       `MVP: ${mvpChar?.name ?? "—"}`,
+      `${(result.categoryIds ?? []).map((id) => getCategory(id).name).join(" + ")}`,
       `${map?.name ?? ""} · ${event?.name ?? ""}`,
       "",
     ];
@@ -100,6 +102,7 @@ export function ResultsStage({
             {winner?.nickname ?? "—"}
           </h2>
           <p className="mt-1 text-xs font-bold uppercase tracking-widest text-white/40">
+            {(result.categoryIds ?? []).map((id) => getCategory(id).name).join(" + ")} ·{" "}
             {maps.find((m) => m.id === result.mapId)?.name} ·{" "}
             {events.find((e) => e.id === result.eventId)?.name}
           </p>
@@ -149,10 +152,23 @@ export function ResultsStage({
                     <span className="block truncate font-black" style={{ color: color.hex }}>
                       {p.nickname}
                     </span>
-                    <span className="text-[11px] text-white/40">
+                    <span className="block text-[11px] text-white/40">
                       {team.survivors} survived · {team.totalDamage} damage ·{" "}
-                      {team.remainingHpPct}% health · forecast {team.winProbability}%
+                      {team.remainingHpPct}% health · power {Math.round(team.teamRating)} ·
+                      forecast {team.winProbability}%
                     </span>
+                    {team.synergies?.length ? (
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {team.synergies.map((sg) => (
+                          <span
+                            key={sg.label}
+                            className="rounded-full border border-cyan-400/25 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300"
+                          >
+                            {sg.label} +{Math.round(sg.bonus * 100)}%
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-right">
                     <span className="block text-xl font-black tabular-nums">+{team.points}</span>

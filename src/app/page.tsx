@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { ApiError, createRoom, joinRoom } from "@/lib/client/api";
 import { lastNickname, setSession } from "@/lib/client/session";
 import { play } from "@/lib/client/sound";
+import { SiteNav } from "@/components/SiteNav";
+import { CATEGORIES } from "@/lib/game/categories";
 
 type Mode = "HOME" | "CREATE" | "JOIN";
 
@@ -67,7 +70,9 @@ function Landing() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-8 px-5 py-10">
+    <>
+      <SiteNav />
+      <main className="mx-auto flex min-h-[85dvh] w-full max-w-xl flex-col justify-center gap-8 px-5 py-10">
       <header className="text-center">
         <p className="mb-3 text-[11px] font-black uppercase tracking-[0.45em] text-white/35">
           Auction · Draft · Battle
@@ -83,7 +88,7 @@ function Landing() {
       </header>
 
       {mode === "HOME" ? (
-        <div className="animate-[rise_0.35s_ease-out] space-y-3">
+        <div id="play" className="animate-[rise_0.35s_ease-out] space-y-3">
           <button className="btn btn-primary w-full" onClick={() => setMode("CREATE")}>
             Create Room
           </button>
@@ -200,10 +205,34 @@ function Landing() {
         </div>
       </section>
 
-      <footer className="text-center text-[11px] text-white/25">
-        Characters and statistics are fictional and exist for gameplay only.
+      <section className="glass rounded-2xl p-5">
+        <p className="mb-3 text-center text-[11px] font-black uppercase tracking-[0.25em] text-white/40">
+          Pick a battle
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {CATEGORIES.map((c) => (
+            <Link
+              key={c.id}
+              href={`/characters?category=${c.id}`}
+              title={c.name}
+              className="grid aspect-square place-items-center rounded-xl border border-white/10 text-2xl transition hover:scale-105"
+              style={{ background: `linear-gradient(135deg, ${c.palette[0]}88, transparent)` }}
+            >
+              {c.icon}
+            </Link>
+          ))}
+        </div>
+        <Link href="/categories" className="btn btn-ghost !min-h-9 mt-3 w-full !text-[11px]">
+          See all categories
+        </Link>
+      </section>
+
+      <footer className="text-center text-[11px] leading-relaxed text-white/25">
+        Game ratings are invented for DRAFT WAR and are not an official ranking.
+        Character data and images come from Wikipedia / Wikimedia.
       </footer>
-    </main>
+      </main>
+    </>
   );
 }
 

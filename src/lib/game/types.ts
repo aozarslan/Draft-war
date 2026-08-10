@@ -8,6 +8,7 @@
 
 export type Phase =
   | "LOBBY"
+  | "CATEGORY"
   | "AUCTION"
   | "TEAM_REVIEW"
   | "MAP_SELECTION"
@@ -18,6 +19,7 @@ export type Phase =
 
 export const PHASE_ORDER: Phase[] = [
   "LOBBY",
+  "CATEGORY",
   "AUCTION",
   "TEAM_REVIEW",
   "MAP_SELECTION",
@@ -30,35 +32,81 @@ export const PHASE_ORDER: Phase[] = [
 export type Rarity = "COMMON" | "RARE" | "EPIC" | "LEGENDARY";
 
 /**
- * Gameplay-only statistics. These are invented numbers for balance purposes and
- * do not describe anything about real people or real-world capability.
+ * A character in any category.
+ *
+ * `stats` is deliberately an open record: the keys come from the character's
+ * category (Marvel rates Durability, Animals rate Bite), and only the category
+ * knows how to project them onto the axes the battle engine fights with. That
+ * is what allows thousands of characters across unrelated universes to live in
+ * one table and one renderer.
+ *
+ * Every number here is a GAME RATING invented for DRAFT WAR. For real people
+ * and real animals in particular, it is not a factual measurement of anything.
  */
-export interface CharacterStats {
-  power: number;
-  speed: number;
-  defense: number;
-  tactics: number;
-  special: number;
-}
-
-export interface Character extends CharacterStats {
+export interface Character {
   id: string;
   name: string;
-  /** Free-form grouping, e.g. "ACTION", "MARVEL", "ANIMALS". Never switched on. */
+  categoryId: string;
+  /** Source universe, e.g. "Marvel Comics", "Wild", "The Lord of the Rings". */
   universe: string;
-  /** Short flavour line shown on the auction card. */
+  /** Incarnation, e.g. "MCU", "Comics", "Animated". Null when not relevant. */
+  version: string | null;
+  /** Short flavour line written for the card. */
   title: string;
+  /** Longer blurb, normally the Wikipedia short description. */
+  description: string;
+  /** For film characters: who plays them. Null elsewhere. */
+  actor: string | null;
   rarity: Rarity;
-  /** Signature move name; drives the "SPECIAL ABILITY" battle log entries. */
-  specialAbility: string;
-  /** Drives map + event modifiers. Unknown tags are simply ignored. */
+  /** Category-specific ratings, 0-100. */
+  stats: Record<string, number>;
+  /** Headline 0-100 rating, the mean of the five canonical axes. */
+  gamePower: number;
+  abilities: string[];
+  /** Drives synergy, map modifiers and event modifiers. */
   tags: string[];
-  /** Suggested opening price. The room config may override the floor. */
+  /** Suggested market value shown on the card. The auction floor is config. */
   basePrice: number;
-  /** Optional remote artwork. When absent the UI renders procedural art. */
-  imageUrl?: string | null;
-  /** Two-stop gradient used by the procedural artwork. */
+
+  // ---- Wikipedia / Wikimedia provenance -----------------------------------
+  wikiTitle: string | null;
+  wikiUrl: string | null;
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  /** Where the image came from, e.g. "Wikimedia Commons". */
+  imageSource: string | null;
+  /** License short name as reported by Wikimedia, when available. */
+  imageLicense: string | null;
+  /** Author/credit string as reported by Wikimedia, when available. */
+  imageCredit: string | null;
+
+  /** Two-stop gradient used by the generated placeholder artwork. */
   palette: [string, string];
+}
+
+/**
+ * The compact shape pool files are authored in. Everything derivable — game
+ * power, rarity, price, palette — is computed, so a new character is one line.
+ */
+export interface PoolEntry {
+  /** Display name. */
+  n: string;
+  /** Wikipedia page title to look up. Defaults to the name. */
+  w?: string | null;
+  /** Universe label. */
+  u: string;
+  /** Incarnation / version. */
+  v?: string | null;
+  /** Flavour line for the card. */
+  t: string;
+  /** Synergy and modifier tags. */
+  g: string[];
+  /** Ratings in the order of the category's stat list. */
+  s: [number, number, number, number, number, number];
+  /** Signature abilities. */
+  ab?: string[];
+  /** Actor, for film characters. */
+  a?: string | null;
 }
 
 export interface MapModifier {
@@ -94,6 +142,9 @@ export interface EventCard {
   icon: string;
 }
 
+/** How the category for a game gets decided. */
+export type CategoryMode = "HOST" | "VOTE" | "RANDOM";
+
 export interface RoomConfig {
   maxPlayers: number;
   minPlayers: number;
@@ -103,12 +154,18 @@ export interface RoomConfig {
   /** null => derived from player count at game start. */
   charactersPerPlayer: number | null;
   minBid: number;
+  /**
+   * Seconds on the clock when a character opens, and — since V2 — the clock a
+   * bid resets to. Every accepted bid puts the full time back, so an auction
+   * only ends when nobody answers for that long.
+   */
   auctionSeconds: number;
-  /** A bid inside this window extends the clock. */
-  antiSnipeWindowSeconds: number;
-  antiSnipeExtendSeconds: number;
   auctionOrder: "RANDOM" | "POWER" | "MANUAL";
   mapVoteSeconds: number;
+  /** Category ids in play. More than one produces a crossover game. */
+  categories: string[];
+  categoryMode: CategoryMode;
+  categoryVoteSeconds: number;
   /** Character ids, only used when auctionOrder === "MANUAL". */
   manualOrder?: string[];
 }
@@ -120,47 +177,17 @@ export const DEFAULT_CONFIG: RoomConfig = {
   poolSize: 20,
   charactersPerPlayer: null,
   minBid: 1,
-  auctionSeconds: 20,
-  antiSnipeWindowSeconds: 5,
-  antiSnipeExtendSeconds: 5,
+  auctionSeconds: 30,
   auctionOrder: "RANDOM",
   mapVoteSeconds: 20,
+  categories: [],
+  categoryMode: "HOST",
+  categoryVoteSeconds: 25,
 };
-
-export interface PlayerView {
-  id: string;
-  nickname: string;
-  colorIndex: number;
-  seat: number;
-  isHost: boolean;
-  isReady: boolean;
-  connected: boolean;
-  credits: number;
-  wins: number;
-  losses: number;
-  points: number;
-  gamesPlayed: number;
-  roster: RosterEntry[];
-}
 
 export interface RosterEntry {
   characterId: string;
   price: number;
-}
-
-export interface AuctionView {
-  id: string;
-  characterId: string;
-  orderIndex: number;
-  status: "ACTIVE" | "SOLD" | "UNSOLD";
-  currentBid: number;
-  highBidderId: string | null;
-  endsAt: string | null;
-  passedPlayerIds: string[];
-  winnerId: string | null;
-  finalPrice: number | null;
-  /** Newest first, capped for payload size. */
-  history: { playerId: string; amount: number; at: string }[];
 }
 
 export interface BattleLogEntry {
@@ -209,12 +236,16 @@ export interface TeamResult {
   remainingHpPct: number;
   winProbability: number;
   teamRating: number;
+  /** Named synergies the squad triggered, for the results screen. */
+  synergies: { label: string; bonus: number }[];
 }
 
 export interface BattleResult {
   seed: string;
   mapId: string;
   eventId: string;
+  /** Categories that were in play. */
+  categoryIds: string[];
   log: BattleLogEntry[];
   durationMs: number;
   teams: TeamResult[];
