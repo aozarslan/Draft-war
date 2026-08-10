@@ -64,6 +64,7 @@ export function useRoom(code: string): RoomStore {
   const lastTick = useRef(0);
   const prev = useRef<StateResponse | null>(null);
   const toastId = useRef(0);
+  const lastError = useRef<string | null>(null);
   // Spread out the moment each client drives the clock forward.
   const jitter = useRef(Math.floor(Math.random() * 350));
 
@@ -139,12 +140,22 @@ export function useRoom(code: string): RoomStore {
           });
           applySnapshot(data);
           setFatal(null);
+          lastError.current = null;
           setConnection((c) => (c === "offline" ? "polling" : c));
         } catch (err) {
           if (err instanceof ApiError && err.status === 404) {
             setFatal("This room does not exist. It may have been closed.");
           } else {
             setConnection("offline");
+            // Surface a server-side problem once rather than spinning silently
+            // behind a "reconnecting" pill — a misconfigured deployment would
+            // otherwise look identical to a flaky network.
+            if (err instanceof ApiError && err.status >= 500) {
+              if (lastError.current !== err.message) {
+                lastError.current = err.message;
+                pushToast("error", err.message);
+              }
+            }
           }
         } finally {
           setLoading(false);
@@ -154,7 +165,7 @@ export function useRoom(code: string): RoomStore {
       inFlight.current = run;
       return run;
     },
-    [applySnapshot, code, reference],
+    [applySnapshot, code, pushToast, reference],
   );
 
   // Keep the stored session in sync (it changes right after create/join).
