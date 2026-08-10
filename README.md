@@ -366,6 +366,31 @@ The endpoint behind these (`/api/dev`) returns 404 in production unless
 
 ---
 
+## Troubleshooting
+
+**"Invalid path specified in request URL"** — `NEXT_PUBLIC_SUPABASE_URL` has a
+path on it. It must be the bare project URL (`https://<ref>.supabase.co`), not
+the REST endpoint the dashboard also displays. Fix the variable, then
+**redeploy** — see below.
+
+**Changing an environment variable does nothing** — Vercel does not rebuild when
+you edit a variable, and `NEXT_PUBLIC_*` values are baked into the client bundle
+at build time. After any change, trigger a new deployment:
+
+```bash
+vercel redeploy https://your-app.vercel.app
+```
+
+**"The character pool is empty"** — migration `0002_seed_characters.sql` has not
+been run. Run it in the Supabase SQL editor.
+
+**The connection pill says SYNCING instead of LIVE** — Realtime is not
+subscribing, and the game has fallen back to polling (still playable). Check
+that `rooms` and `chat_messages` are in the `supabase_realtime` publication, and
+look in the browser console for a `[DRAFT WAR] Realtime disabled` warning.
+
+---
+
 ## Known limitations
 
 * **Room codes are not rationed.** Anyone who guesses a 5-character code can join
