@@ -7,10 +7,12 @@ import {
   clearAccount,
   createProfile,
   equipItem,
+  fetchAchievements,
   fetchCoins,
   fetchInventory,
   fetchProfile,
   getAccount,
+  type AchievementsPayload,
   type CoinLedger,
   type InventoryPayload,
   type ProfilePayload,
@@ -24,6 +26,7 @@ import {
   RARITY_STYLE,
   type ItemKind,
 } from "@/lib/game/items";
+import { TIER_STYLE, type AchievementTier } from "@/lib/game/achievements";
 import { getCategory } from "@/lib/game/categories";
 import { Avatar, CoinPill, LevelBar, TitleTag } from "@/components/ProfileBadge";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
@@ -74,6 +77,9 @@ export function ProfileClient() {
           <LevelBar xp={data.profile.xp} />
         </div>
       </Panel>
+
+      {/* ---- Medals ---- */}
+      <Medals />
 
       {/* ---- Inventory ---- */}
       <Inventory onEquip={() => void fetchProfile().then((p) => p && setData(p))} />
@@ -222,6 +228,90 @@ export function ProfileClient() {
         supported yet.
       </p>
     </div>
+  );
+}
+
+/**
+ * A summary of the medal cabinet: what has been unlocked, and the two nearest
+ * things still to chase. The full list lives on its own page.
+ */
+function Medals() {
+  const [data, setData] = useState<AchievementsPayload | null>(null);
+
+  useEffect(() => {
+    void fetchAchievements().then(setData);
+  }, []);
+
+  if (!data) return null;
+
+  const recent = data.achievements
+    .filter((a) => a.unlocked)
+    .sort((a, b) => (b.unlockedAt ?? "").localeCompare(a.unlockedAt ?? ""))
+    .slice(0, 3);
+
+  // Closest to done, ignoring anything not started — "0 of 50" is not a tease.
+  const next = data.achievements
+    .filter((a) => !a.unlocked && a.value > 0)
+    .sort((a, b) => b.value / b.threshold - a.value / a.threshold)
+    .slice(0, 2);
+
+  return (
+    <Panel accent="#fbbf24">
+      <SectionTitle
+        right={
+          <Link href="/achievements" className="text-[10px] font-bold text-white/45 hover:text-white">
+            All {data.total} →
+          </Link>
+        }
+      >
+        🏅 {data.unlockedCount} unlocked
+      </SectionTitle>
+
+      <div className="space-y-1.5 px-4 pb-4">
+        {recent.map((a) => {
+          const tier = TIER_STYLE[a.tier as AchievementTier] ?? TIER_STYLE.BRONZE;
+          return (
+            <div
+              key={a.id}
+              className="flex items-center gap-2 rounded-xl border px-3 py-2"
+              style={{ borderColor: `${tier.colour}55`, background: `${tier.colour}12` }}
+            >
+              <span className="text-sm">🏅</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] font-black">{a.name}</span>
+              <span className="shrink-0 text-[9px] font-bold" style={{ color: tier.colour }}>
+                {TIER_STYLE[a.tier as AchievementTier]?.label}
+              </span>
+            </div>
+          );
+        })}
+
+        {next.map((a) => (
+          <div key={a.id} className="rounded-xl border border-white/8 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm opacity-40">🔒</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-white/55">
+                {a.name}
+              </span>
+              <span className="shrink-0 text-[9px] font-bold tabular-nums text-white/35">
+                {a.value} / {a.threshold}
+              </span>
+            </div>
+            <div className="stat-bar mt-1.5">
+              <div
+                className="h-full rounded-full bg-white/25"
+                style={{ width: `${Math.round((a.value / a.threshold) * 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+
+        {recent.length === 0 && next.length === 0 ? (
+          <p className="text-center text-[11px] text-white/30">
+            Play a match and the first ones start falling.
+          </p>
+        ) : null}
+      </div>
+    </Panel>
   );
 }
 

@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/rules", label: "Rules" },
   { href: "/leaderboard", label: "Ranks" },
   { href: "/shop", label: "Shop" },
+  { href: "/achievements", label: "Medals" },
 ];
 
 /**

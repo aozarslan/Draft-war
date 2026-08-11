@@ -70,6 +70,17 @@ export async function requireProfile(
 // Match rewards
 // ---------------------------------------------------------------------------
 
+export interface UnlockedAchievement {
+  id: string;
+  name: string;
+  description: string;
+  tier: string;
+  category: string;
+  coins: number;
+  xp: number;
+  item: string | null;
+}
+
 export interface RewardLine {
   profileId: string;
   username: string;
@@ -79,6 +90,7 @@ export interface RewardLine {
   coins: number;
   coinBreakdown: CoinLine[];
   coinBalance: number;
+  unlocked: UnlockedAchievement[];
   rankDelta: number;
   levelBefore: number;
   levelAfter: number;
@@ -191,6 +203,12 @@ export async function awardMatchRewards(
       },
     });
 
+    // Achievements are evaluated last, so a match that took somebody to their
+    // tenth win pays the match first and the medal second.
+    const evaluated = await rpcOrThrow("dw_evaluate_achievements", {
+      p_profile_id: seat.profile_id,
+    });
+
     // A repeat call returns early; report the line without pretending it paid.
     const alreadyAwarded = Boolean(awarded.alreadyAwarded);
     const coinsPaid = Number(paid.amount ?? 0);
@@ -209,6 +227,7 @@ export async function awardMatchRewards(
       coins: coinsPaid,
       coinBreakdown: coinsPaid > 0 ? coinLines : [],
       coinBalance: Number(paid.balance ?? 0),
+      unlocked: (evaluated.unlocked ?? []) as UnlockedAchievement[],
       rankDelta: alreadyAwarded ? 0 : delta,
       levelBefore,
       levelAfter,
@@ -219,6 +238,15 @@ export async function awardMatchRewards(
   }
 
   return lines;
+}
+
+/** Every achievement with the caller's progress against it. */
+export async function getAchievements(profileId: string | null) {
+  const data = await rpc("dw_achievements", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "ACHIEVEMENTS_ERROR"), String(data.message), 500);
+  }
+  return data;
 }
 
 /**

@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  fetchAchievements,
   fetchProfile,
   getAccount,
+  type AchievementProgress,
   type MatchHistoryEntry,
   type ProfilePayload,
 } from "@/lib/client/account";
+import { TIER_STYLE, type AchievementTier } from "@/lib/game/achievements";
 import { formatCoins, levelFromXp, rankFromPoints } from "@/lib/game/progression";
 import { LevelBar } from "./ProfileBadge";
 import { Panel, SectionTitle } from "./ui";
@@ -24,6 +27,7 @@ import { play } from "@/lib/client/sound";
 export function MatchRewards({ gameId }: { gameId: string | null }) {
   const [data, setData] = useState<ProfilePayload | null>(null);
   const [entry, setEntry] = useState<MatchHistoryEntry | null>(null);
+  const [fresh, setFresh] = useState<AchievementProgress[]>([]);
   const [state, setState] = useState<"loading" | "guest" | "ready">("loading");
 
   useEffect(() => {
@@ -46,7 +50,20 @@ export function MatchRewards({ gameId }: { gameId: string | null }) {
         setData(profile);
         setEntry(found);
         setState(profile ? "ready" : "guest");
-        if (found) play("victory");
+        if (found) {
+          play("victory");
+          // The medals were already awarded server-side when the battle was
+          // stored; this only asks which of them are new enough to celebrate.
+          const list = await fetchAchievements();
+          if (alive && list) {
+            const cutoff = Date.now() - 10 * 60 * 1000;
+            setFresh(
+              list.achievements.filter(
+                (a) => a.unlocked && a.unlockedAt && new Date(a.unlockedAt).getTime() > cutoff,
+              ),
+            );
+          }
+        }
       } else {
         setTimeout(load, 1200);
       }
@@ -123,6 +140,30 @@ export function MatchRewards({ gameId }: { gameId: string | null }) {
           </div>
         </div>
       </div>
+
+      {fresh.length > 0 ? (
+        <ul className="mx-4 mb-3 space-y-1">
+          {fresh.map((a) => {
+            const tier = TIER_STYLE[a.tier as AchievementTier] ?? TIER_STYLE.BRONZE;
+            return (
+              <li
+                key={a.id}
+                className="flex animate-[slam_0.5s_both] items-center gap-2 rounded-xl border px-3 py-2"
+                style={{ borderColor: `${tier.colour}66`, background: `${tier.colour}14` }}
+              >
+                <span className="text-lg">🏅</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[11px] font-black">{a.name}</span>
+                  <span className="block truncate text-[9px] text-white/40">{a.description}</span>
+                </span>
+                <span className="shrink-0 text-[10px] font-black" style={{ color: tier.colour }}>
+                  {a.coins > 0 ? `🪙 ${a.coins}` : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
 
       {levelledUp ? (
         <p className="mx-4 mb-3 animate-[slam_0.5s_both] rounded-xl bg-gradient-to-r from-cyan-400/20 to-fuchsia-500/20 px-3 py-2 text-center text-sm font-black">

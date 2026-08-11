@@ -240,6 +240,8 @@ through the server.
 | `catalog_items` | Every cosmetic: avatar, frame, banner, title. Public read |
 | `profile_items` | Who owns what. No anon policy |
 | `shop_rotations` | The 24-hour featured window. Public read, server-only write |
+| `achievements` | The catalog: one metric, one threshold, one reward. Public read |
+| `profile_achievements` | Who has unlocked what. No anon policy |
 
 None of the progression tables has an anon policy, so the browser cannot read
 or write coins, XP or rank at all — every number the UI shows was fetched by
@@ -259,6 +261,12 @@ a bid, and a test asserts that no payload ever grows one. Ownership is a row in
 `profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
 a forged request can do is ask to wear something it does not own and be told no.
 
+**An achievement is a metric against a threshold**, and every metric is derived
+by `dw_profile_metrics` from match history, the coin ledger and the inventory —
+nothing a client reports about itself is ever an input. The unlock row is
+inserted before the rewards are paid, so evaluating twice pays once, which is
+why evaluation runs after every match, purchase and daily claim.
+
 **A purchase is atomic.** `dw_buy_item` takes the coins and grants the item
 inside one subtransaction, so "coins deducted but item missing" is not a state
 this database can reach — a failure in either half rolls back the other and
@@ -276,7 +284,8 @@ Progression functions: `dw_create_profile`, `dw_link_player_profile`,
 `dw_award_match`, `dw_profile`, `dw_leaderboard`, `dw_award_coins`,
 `dw_spend_coins`, `dw_award_match_coins`, `dw_claim_daily`, `dw_coin_ledger`,
 `dw_grant_item`, `dw_grant_defaults`, `dw_equip_item`, `dw_inventory`,
-`dw_current_rotation`, `dw_item_price`, `dw_buy_item`, `dw_shop`.
+`dw_current_rotation`, `dw_item_price`, `dw_buy_item`, `dw_shop`,
+`dw_profile_metrics`, `dw_evaluate_achievements`, `dw_achievements`.
 
 ---
 
@@ -315,6 +324,10 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
     (generated from `src/lib/game/items.ts` by `npm run seed:items`)
 11. `supabase/migrations/0011_shop.sql` — the shop, its 24-hour rotation and
     atomic purchases
+12. `supabase/migrations/0012_achievements.sql` — achievements and the metrics
+    they are measured against
+13. `supabase/migrations/0013_seed_achievements.sql` — the achievement catalog
+    (generated from `src/lib/game/achievements.ts` by `npm run seed:achievements`)
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep

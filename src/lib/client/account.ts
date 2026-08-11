@@ -194,6 +194,41 @@ export async function claimDaily(): Promise<DailyClaim> {
   return data as DailyClaim;
 }
 
+export interface AchievementProgress {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tier: string;
+  metric: string;
+  threshold: number;
+  coins: number;
+  xp: number;
+  item: string | null;
+  /** Capped at the threshold, so a bar never overfills. */
+  value: number;
+  unlocked: boolean;
+  unlockedAt: string | null;
+}
+
+export interface AchievementsPayload {
+  ok: true;
+  metrics: Record<string, number>;
+  achievements: AchievementProgress[];
+  unlockedCount: number;
+  total: number;
+}
+
+export async function fetchAchievements(): Promise<AchievementsPayload | null> {
+  const res = await fetch("/api/profile/achievements", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as AchievementsPayload);
+}
+
 export interface ShopItem {
   itemId: string;
   kind: string;
