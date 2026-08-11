@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createRng, randomSeed } from "@/lib/game/rng";
 import { computeAxisBands, simulateBattle } from "@/lib/game/battle";
-import { buildAuctionQueue, draftSize, rosterSize } from "@/lib/game/auction";
+import { buildAuctionQueue, draftSize, queueSize, rosterSize } from "@/lib/game/auction";
 import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
 import { CATEGORIES, LEGACY_CATEGORY_ID, resolveCategoryVote } from "@/lib/game/categories";
@@ -54,6 +54,9 @@ export interface Snapshot {
     queue: string[];
     queueIndex: number;
     charactersPerPlayer: number;
+    /** players x roster — what "17 / 25" counts. */
+    requiredAllocations: number;
+    allocated: number;
     categoryIds: string[];
     mapId: string | null;
     eventId: string | null;
@@ -431,7 +434,14 @@ export async function startGame(
   // is persisted with the game. The client never sees the wider category pool
   // and cannot influence which characters were drawn.
   const seed = randomSeed();
-  const queue = buildAuctionQueue(pool, snap.room.config, seed, wanted);
+  // Required allocations plus a reserve, so passing is a legal move and an
+  // unsold character can be replaced instead of shrinking the draft.
+  const queue = buildAuctionQueue(
+    pool,
+    snap.room.config,
+    seed,
+    queueSize(playerCount, snap.room.config, pool.length),
+  );
 
   await rpcOrThrow("dw_start_game", {
     p_room_id: roomId,

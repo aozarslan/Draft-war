@@ -72,6 +72,26 @@ export function draftSize(
 }
 
 /**
+ * How many characters actually go into the queue: the required allocations
+ * plus a RESERVE.
+ *
+ * Without the reserve, supply equalled demand from the first character, the
+ * "you may not make the draft unsolvable" rule fired on every single PASS, and
+ * the button was effectively dead. The reserve buys enough slack for passing
+ * to be a real decision, and for a character to genuinely go unsold, while the
+ * auction still ends only when every roster is full.
+ */
+export function queueSize(
+  playerCount: number,
+  config: Pick<RoomConfig, "charactersPerPlayer">,
+  available: number,
+): number {
+  const required = draftSize(playerCount, config);
+  const reserve = Math.max(5, Math.round(required * 0.4));
+  return Math.min(available, required + reserve);
+}
+
+/**
  * The most a player may legally bid: they have to keep `minBid` in reserve for
  * every slot they still need to fill *after* this one.
  *

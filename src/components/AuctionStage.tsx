@@ -37,7 +37,6 @@ export function AuctionStage({
   const category = character ? getCategory(character.categoryId) : null;
 
   const perPlayer = snapshot?.game?.charactersPerPlayer ?? 5;
-  const draftTotal = snapshot?.game?.queue.length ?? 0;
   const minBid = snapshot?.room.config.minBid ?? 1;
   const slots = me ? Math.max(0, perPlayer - me.roster.length) : 0;
 
@@ -104,8 +103,13 @@ export function AuctionStage({
 
   const bidUp1 = limits.min;
   const bidUp5 = Math.max(limits.min, auction.currentBid + 5);
-  const totalDrafted = snapshot.players.reduce((s, p) => s + p.roster.length, 0);
-  const totalNeeded = draftTotal || snapshot.players.length * perPlayer;
+  // Progress counts successful ALLOCATIONS, not queue position: the queue
+  // carries a reserve, so it is deliberately longer than the target.
+  const totalDrafted =
+    snapshot.game?.allocated ??
+    snapshot.players.reduce((s, p) => s + p.roster.length, 0);
+  const totalNeeded =
+    snapshot.game?.requiredAllocations ?? snapshot.players.length * perPlayer;
 
   // Auction history, newest first, straight from the append-only game log.
   // AUTO_ASSIGNED is a character nobody bid on that the draft could not afford
@@ -198,8 +202,8 @@ export function AuctionStage({
                     className="text-[10px] font-black uppercase tracking-[0.25em]"
                     style={{ color: category.accent }}
                   >
-                    {category.icon} {category.name} · {auction.orderIndex + 1} of{" "}
-                    {draftTotal}
+                    {category.icon} {category.name} · character{" "}
+                    {totalDrafted + 1} of {totalNeeded}
                   </p>
                   <h2 className="headline mt-1 text-[clamp(1.4rem,5.5vw,2.4rem)] leading-none">
                     {character.name}

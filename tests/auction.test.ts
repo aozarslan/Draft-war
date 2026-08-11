@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAuctionQueue,
   draftSize,
+  queueSize,
   rosterSize,
   maxAllowedBid,
   minAllowedBid,
@@ -57,6 +58,54 @@ describe("roster and draft sizing (V2.1)", () => {
     expect(DEFAULT_CONFIG.startingCredits).toBe(50);
     expect(DEFAULT_CONFIG.charactersPerPlayer).toBe(5);
     expect(DEFAULT_CONFIG.auctionSeconds).toBe(10);
+  });
+});
+
+describe("reserve pool", () => {
+  /**
+   * Regression for a PASS button that was dead on arrival.
+   *
+   * The queue used to be exactly `players x roster`, so supply equalled demand
+   * from the first character and the "do not make the draft unsolvable" rule
+   * rejected every PASS with MUST_BID. The reserve restores the slack that
+   * makes passing a real decision.
+   */
+  it("puts a reserve on top of the required allocations", () => {
+    const required = draftSize(5, DEFAULT_CONFIG);
+    const queue = queueSize(5, DEFAULT_CONFIG, 50);
+    expect(required).toBe(25);
+    expect(queue).toBeGreaterThan(required);
+    expect(queue).toBe(35);
+  });
+
+  it("never asks for more characters than the category has", () => {
+    expect(queueSize(5, DEFAULT_CONFIG, 28)).toBe(28);
+    expect(queueSize(5, DEFAULT_CONFIG, 22)).toBe(22);
+  });
+
+  it("keeps a usable reserve for small games too", () => {
+    expect(queueSize(2, DEFAULT_CONFIG, 50)).toBe(15); // 10 required + 5
+    expect(queueSize(3, DEFAULT_CONFIG, 50)).toBe(21); // 15 required + 6
+  });
+
+  it("lets a player pass while the reserve lasts, and stops them when it runs out", () => {
+    const bidder = { playerId: "p1", credits: 40, slotsRemaining: 3, hasPassed: false };
+    const auction = {
+      status: "ACTIVE" as const,
+      currentBid: 0,
+      highBidderId: null,
+      endsAt: NOW + 10_000,
+    };
+
+    // 30 characters still to come, 25 slots to fill: passing is fine.
+    expect(
+      validatePass({ auction, bidder, supplyAfterCurrent: 30, totalRemainingDemand: 25 }).ok,
+    ).toBe(true);
+
+    // The reserve has been eaten by unsold characters: everyone must bid.
+    expect(
+      validatePass({ auction, bidder, supplyAfterCurrent: 24, totalRemainingDemand: 25 }).code,
+    ).toBe("MUST_BID");
   });
 });
 
