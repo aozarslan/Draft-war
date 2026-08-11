@@ -65,33 +65,50 @@ export async function authenticate(
   }
 
   const db = supabaseAdmin();
-  const { data, error } = await db
-    .from("player_secrets")
-    .select("token, players!inner(id, room_id, rooms!inner(id, code, host_player_id))")
-    .eq("player_id", playerId)
-    .maybeSingle();
 
-  if (error) return errorResponse("DB_ERROR", error.message, 500);
-  if (!data || data.token !== token) {
+  // Three plain lookups rather than one embedded query.
+  //
+  // The embedded version broke the moment `category_votes` was added: its
+  // primary key is (room_id, player_id), which is exactly the shape PostgREST
+  // reads as a many-to-many join table, so "players related to rooms" became
+  // ambiguous and every authenticated action started failing. Relationship
+  // inference is not something authentication should depend on — these three
+  // queries have no such failure mode, and they run in parallel so it costs
+  // one round trip either way.
+  const [secretResult, playerResult, roomResult] = await Promise.all([
+    db.from("player_secrets").select("token").eq("player_id", playerId).maybeSingle(),
+    db.from("players").select("id, room_id").eq("id", playerId).maybeSingle(),
+    db
+      .from("rooms")
+      .select("id, code, host_player_id")
+      .eq("code", roomCode.toUpperCase())
+      .maybeSingle(),
+  ]);
+
+  const dbError = secretResult.error ?? playerResult.error ?? roomResult.error;
+  if (dbError) return errorResponse("DB_ERROR", dbError.message, 500);
+
+  const secret = secretResult.data as { token: string } | null;
+  if (!secret || secret.token !== token) {
     return errorResponse("INVALID_SESSION", "Session expired. Please join again.", 401);
   }
 
-  // supabase-js types embedded relations loosely; shape is guaranteed by !inner.
-  const player = data.players as unknown as {
+  const player = playerResult.data as { id: string; room_id: string } | null;
+  const room = roomResult.data as {
     id: string;
-    room_id: string;
-    rooms: { id: string; code: string; host_player_id: string | null };
-  };
+    code: string;
+    host_player_id: string | null;
+  } | null;
 
-  if (player.rooms.code !== roomCode.toUpperCase()) {
+  if (!player || !room || player.room_id !== room.id) {
     return errorResponse("NOT_IN_ROOM", "You are not part of this room.", 403);
   }
 
   return {
     playerId: player.id,
-    roomId: player.room_id,
-    roomCode: player.rooms.code,
-    isHost: player.rooms.host_player_id === player.id,
+    roomId: room.id,
+    roomCode: room.code,
+    isHost: room.host_player_id === player.id,
   };
 }
 
