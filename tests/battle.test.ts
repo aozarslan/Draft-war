@@ -229,6 +229,57 @@ describe("simulation", () => {
     expect(result.categoryIds).toEqual(["marvel"]);
   });
 
+  it("runs a five-way battle with five complete teams", () => {
+    const pool = charactersInCategories(["marvel"]);
+    const ids = pool.slice(0, 25).map((c) => c.id);
+    const teams = [0, 1, 2, 3, 4].map((i) =>
+      team(`p${i}`, ids.slice(i * 5, i * 5 + 5)),
+    );
+
+    const result = simulateBattle({
+      teams,
+      map,
+      event: neutralEvent,
+      charactersById: CHARACTERS_BY_ID,
+      seed: "five-way",
+      categoryIds: ["marvel"],
+      bands: BANDS,
+    });
+
+    // All five fight; it is not collapsed into a 1v1.
+    expect(result.teams).toHaveLength(5);
+    expect(result.combatants).toHaveLength(25);
+    expect(result.teams.map((t) => t.rank)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.teams.map((t) => t.points)).toEqual([3, 2, 1, 0, 0]);
+    // A probability is quoted for every team and they add up.
+    const total = result.teams.reduce((s, t) => s + t.winProbability, 0);
+    expect(total).toBeGreaterThan(99);
+    expect(total).toBeLessThan(101);
+    expect(result.teams[0].playerId).toBe(result.winnerPlayerId);
+  });
+
+  it("does not let one team win every five-way battle", () => {
+    const pool = charactersInCategories(["dc"]);
+    const ids = pool.slice(0, 25).map((c) => c.id);
+    const teams = [0, 1, 2, 3, 4].map((i) =>
+      team(`p${i}`, ids.slice(i * 5, i * 5 + 5)),
+    );
+    const winners = new Set(
+      Array.from({ length: 25 }, (_, i) =>
+        simulateBattle({
+          teams,
+          map,
+          event: neutralEvent,
+          charactersById: CHARACTERS_BY_ID,
+          seed: `five-${i}`,
+          categoryIds: ["dc"],
+          bands: BANDS,
+        }).winnerPlayerId,
+      ),
+    );
+    expect(winners.size).toBeGreaterThan(1);
+  });
+
   it("awards points by the 3/2/1/0 table with four teams", () => {
     const result = simulateBattle({
       teams: [

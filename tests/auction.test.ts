@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAuctionQueue,
-  charactersPerPlayer,
+  draftSize,
+  rosterSize,
   maxAllowedBid,
   minAllowedBid,
   resetDeadline,
@@ -16,6 +17,8 @@ import { DEFAULT_CONFIG } from "../src/lib/game/types";
 
 const NOW = 1_700_000_000_000;
 const MARVEL_POOL = charactersInCategories(["marvel"]);
+/** The standard five-player draft. */
+const DRAFT = draftSize(5, DEFAULT_CONFIG);
 
 const auction = (over: Partial<AuctionState> = {}): AuctionState => ({
   status: "ACTIVE",
@@ -33,16 +36,43 @@ const bidder = (over: Partial<BidderState> = {}): BidderState => ({
   ...over,
 });
 
-describe("roster sizing", () => {
-  it("divides the pool across the players who actually turned up", () => {
-    expect(charactersPerPlayer(4, 20)).toBe(5);
-    expect(charactersPerPlayer(3, 20)).toBe(6); // 2 characters go unused
-    expect(charactersPerPlayer(2, 20)).toBe(10);
+describe("roster and draft sizing (V2.1)", () => {
+  it("gives everybody the same five-character roster", () => {
+    expect(rosterSize(DEFAULT_CONFIG)).toBe(5);
+    expect(rosterSize({ charactersPerPlayer: 3 })).toBe(3);
+    // A nonsense value must not produce a zero-slot game.
+    expect(rosterSize({ charactersPerPlayer: 0 })).toBe(5);
+    expect(rosterSize({ charactersPerPlayer: Number.NaN })).toBe(5);
   });
 
-  it("honours a host override but never oversubscribes the pool", () => {
-    expect(charactersPerPlayer(4, 20, 3)).toBe(3);
-    expect(charactersPerPlayer(4, 20, 9)).toBe(5);
+  it("sizes the draft to players x roster, so nothing is left over", () => {
+    expect(draftSize(5, DEFAULT_CONFIG)).toBe(25);
+    expect(draftSize(4, DEFAULT_CONFIG)).toBe(20);
+    expect(draftSize(3, DEFAULT_CONFIG)).toBe(15);
+    expect(draftSize(2, DEFAULT_CONFIG)).toBe(10);
+  });
+
+  it("ships the five-player standard game as the default", () => {
+    expect(DEFAULT_CONFIG.maxPlayers).toBe(5);
+    expect(DEFAULT_CONFIG.startingCredits).toBe(50);
+    expect(DEFAULT_CONFIG.charactersPerPlayer).toBe(5);
+    expect(DEFAULT_CONFIG.auctionSeconds).toBe(10);
+  });
+});
+
+describe("the reserve rule at 50 credits", () => {
+  it("matches the brief's worked example", () => {
+    // 18 credits, 3/5 drafted, 2 slots left -> may bid 17.
+    expect(maxAllowedBid(18, 2, 1)).toBe(17);
+  });
+
+  it("lets a player commit almost everything on the first pick", () => {
+    expect(maxAllowedBid(50, 5, 1)).toBe(46);
+  });
+
+  it("leaves exactly enough to finish the roster", () => {
+    expect(maxAllowedBid(5, 5, 1)).toBe(1);
+    expect(maxAllowedBid(25, 1, 1)).toBe(25);
   });
 });
 
@@ -214,8 +244,9 @@ describe("passing", () => {
   });
 
   it("is blocked when supply exactly matches demand", () => {
-    // 4 players x 5 characters from a 20 card pool: nothing may go unsold.
-    const result = validatePass({ ...base, supplyAfterCurrent: 19, totalRemainingDemand: 20 });
+    // The standard game draws exactly players x 5 characters, so supply and
+    // demand are equal from the first character and nothing goes unsold.
+    const result = validatePass({ ...base, supplyAfterCurrent: 24, totalRemainingDemand: 25 });
     expect(result.code).toBe("MUST_BID");
   });
 
@@ -257,13 +288,13 @@ describe("early resolution", () => {
 
 describe("auction order", () => {
   it("random order is a permutation and is stable for a seed", () => {
-    const q1 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a");
-    const q2 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a");
-    const q3 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b");
+    const q1 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a", DRAFT);
+    const q2 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a", DRAFT);
+    const q3 = buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b", DRAFT);
 
     expect(q1).toEqual(q2);
     expect(q1).not.toEqual(q3);
-    expect(new Set(q1).size).toBe(DEFAULT_CONFIG.poolSize);
+    expect(new Set(q1).size).toBe(DRAFT);
   });
 
   it("power order is descending by game power", () => {
@@ -271,6 +302,7 @@ describe("auction order", () => {
       MARVEL_POOL,
       { ...DEFAULT_CONFIG, auctionOrder: "POWER" },
       "x",
+      DRAFT,
     );
     const powers = queue.map(
       (id) => MARVEL_POOL.find((x) => x.id === id)!.gamePower,
@@ -285,17 +317,18 @@ describe("auction order", () => {
       MARVEL_POOL,
       { ...DEFAULT_CONFIG, auctionOrder: "MANUAL", manualOrder: [first, second] },
       "x",
+      DRAFT,
     );
     expect(queue.slice(0, 2)).toEqual([first, second]);
-    expect(queue).toHaveLength(DEFAULT_CONFIG.poolSize);
+    expect(queue).toHaveLength(DRAFT);
   });
 
   it("draws the pool from the whole category, not just its first entries", () => {
     // A 50-character category must not always produce the same twenty.
-    const a = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a"));
-    const b = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b"));
+    const a = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-a", DRAFT));
+    const b = new Set(buildAuctionQueue(MARVEL_POOL, DEFAULT_CONFIG, "seed-b", DRAFT));
     const overlap = [...a].filter((id) => b.has(id)).length;
-    expect(a.size).toBe(DEFAULT_CONFIG.poolSize);
-    expect(overlap).toBeLessThan(DEFAULT_CONFIG.poolSize);
+    expect(a.size).toBe(DRAFT);
+    expect(overlap).toBeLessThan(DRAFT);
   });
 });

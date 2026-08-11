@@ -24,7 +24,7 @@ export function PlayerRail({
   className?: string;
   compact?: boolean;
 }) {
-  const perPlayer = snapshot.game?.charactersPerPlayer ?? 5;
+  const perPlayer = snapshot.game?.charactersPerPlayer ?? snapshot.room.config.charactersPerPlayer ?? 5;
 
   return (
     <div className={className}>

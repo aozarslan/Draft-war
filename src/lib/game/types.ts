@@ -146,18 +146,22 @@ export interface EventCard {
 export type CategoryMode = "HOST" | "VOTE" | "RANDOM";
 
 export interface RoomConfig {
+  /** 2-5. The default game is five players. */
   maxPlayers: number;
   minPlayers: number;
   startingCredits: number;
-  /** Number of characters put into the auction queue. */
-  poolSize: number;
-  /** null => derived from player count at game start. */
-  charactersPerPlayer: number | null;
+  /**
+   * Roster size every player must fill. The draft pool is always exactly
+   * `playerCount * charactersPerPlayer`, so five players draft 25 characters
+   * and nothing is left over.
+   */
+  charactersPerPlayer: number;
   minBid: number;
   /**
-   * Seconds on the clock when a character opens, and — since V2 — the clock a
-   * bid resets to. Every accepted bid puts the full time back, so an auction
-   * only ends when nobody answers for that long.
+   * Seconds on the clock when a character opens, and the clock a bid resets to.
+   * Every accepted bid puts the full time back, so an auction only ends when
+   * nobody answers for that long — 10 seconds keeps a five-player draft to a
+   * few minutes without ever cutting a bidding war short.
    */
   auctionSeconds: number;
   auctionOrder: "RANDOM" | "POWER" | "MANUAL";
@@ -171,13 +175,12 @@ export interface RoomConfig {
 }
 
 export const DEFAULT_CONFIG: RoomConfig = {
-  maxPlayers: 4,
+  maxPlayers: 5,
   minPlayers: 2,
-  startingCredits: 40,
-  poolSize: 20,
-  charactersPerPlayer: null,
+  startingCredits: 50,
+  charactersPerPlayer: 5,
   minBid: 1,
-  auctionSeconds: 30,
+  auctionSeconds: 10,
   auctionOrder: "RANDOM",
   mapVoteSeconds: 20,
   categories: [],

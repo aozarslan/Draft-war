@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Build your team. Break the bank. Win the war.",
   openGraph: {
     title: "DRAFT WAR",
-    description: "4 players. 40 credits. 20 characters. 5 fighters each.",
+    description: "5 players. 50 credits each. Draft 25 characters. Build the strongest 5-person team.",
     type: "website",
   },
 };

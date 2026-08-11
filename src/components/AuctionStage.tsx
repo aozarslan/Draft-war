@@ -37,6 +37,7 @@ export function AuctionStage({
   const category = character ? getCategory(character.categoryId) : null;
 
   const perPlayer = snapshot?.game?.charactersPerPlayer ?? 5;
+  const draftTotal = snapshot?.game?.queue.length ?? 0;
   const minBid = snapshot?.room.config.minBid ?? 1;
   const slots = me ? Math.max(0, perPlayer - me.roster.length) : 0;
 
@@ -104,7 +105,12 @@ export function AuctionStage({
   const bidUp1 = limits.min;
   const bidUp5 = Math.max(limits.min, auction.currentBid + 5);
   const totalDrafted = snapshot.players.reduce((s, p) => s + p.roster.length, 0);
-  const totalNeeded = snapshot.players.length * perPlayer;
+  const totalNeeded = draftTotal || snapshot.players.length * perPlayer;
+
+  // Auction history, newest first, straight from the append-only game log.
+  const sold = snapshot.events
+    .filter((e) => e.type === "SOLD")
+    .map((e) => e.payload as { characterId: string; playerId: string; price: number });
 
   const reason = rosterFull
     ? "Your roster is full."
@@ -188,7 +194,7 @@ export function AuctionStage({
                     style={{ color: category.accent }}
                   >
                     {category.icon} {category.name} · {auction.orderIndex + 1} of{" "}
-                    {snapshot.game?.queue.length ?? 20}
+                    {draftTotal}
                   </p>
                   <h2 className="headline mt-1 text-[clamp(1.4rem,5.5vw,2.4rem)] leading-none">
                     {character.name}
@@ -336,7 +342,7 @@ export function AuctionStage({
                 <p className="mt-2 text-center text-[11px] font-semibold text-white/40">{reason}</p>
               ) : null}
               <p className="mt-2 text-center text-[10px] text-white/25">
-                Every bid puts the full {snapshot.room.config.auctionSeconds ?? 30}s back on the clock.
+                Every bid puts the full {snapshot.room.config.auctionSeconds ?? 10}s back on the clock.
               </p>
             </div>
           </Panel>
@@ -418,6 +424,47 @@ export function AuctionStage({
                     .join(", ")}
                 </p>
               ) : null}
+            </div>
+          </Panel>
+
+          <Panel>
+            <SectionTitle
+              right={
+                <span className="text-[11px] font-black text-white/40">
+                  {sold.length}/{totalNeeded}
+                </span>
+              }
+            >
+              Sold so far
+            </SectionTitle>
+            <div className="max-h-56 overflow-y-auto px-4 pb-4">
+              {sold.length === 0 ? (
+                <EmptyState icon="🔨" title="Nothing sold yet." />
+              ) : (
+                <ul className="space-y-1">
+                  {sold.map((e, i) => {
+                    const buyer = snapshot.players.find((p) => p.id === e.playerId);
+                    const c = charactersById[e.characterId];
+                    const color = buyer ? playerColor(buyer.colorIndex).hex : "#94a3b8";
+                    return (
+                      <li
+                        key={`${e.characterId}-${i}`}
+                        className="flex items-center gap-2 text-[11px]"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-semibold text-white/75">
+                          {c?.name ?? e.characterId}
+                        </span>
+                        <span className="shrink-0 truncate font-bold" style={{ color }}>
+                          {buyer?.nickname ?? "—"}
+                        </span>
+                        <span className="w-7 shrink-0 text-right font-black tabular-nums text-amber-300">
+                          {e.price}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </Panel>
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_CONFIG, type RoomConfig } from "@/lib/game/types";
+import { DEFAULT_CONFIG, type CategoryMode, type RoomConfig } from "@/lib/game/types";
+import { CATEGORIES } from "@/lib/game/categories";
 import { EngineError, getCharacters, rpc } from "@/lib/server/engine";
 import { errorResponse, newRoomCode, newToken } from "@/lib/server/session";
 
@@ -20,20 +21,48 @@ export async function POST(request: Request) {
     }
 
     const pool = await getCharacters();
+
+    // The host can pin the categories at creation time. Anything unknown is
+    // dropped rather than rejected, so a stale client cannot lock somebody out
+    // of making a room.
+    const validIds = CATEGORIES.map((c) => c.id);
+    const categories = [...new Set(body.config?.categories ?? [])]
+      .filter((id) => validIds.includes(id))
+      .slice(0, 4);
+    const requestedMode = body.config?.categoryMode;
+    const categoryMode: CategoryMode =
+      requestedMode === "VOTE" || requestedMode === "RANDOM" ? requestedMode : "HOST";
+
     const config: RoomConfig = {
       ...DEFAULT_CONFIG,
       ...body.config,
-      // Never let the client ask for a pool bigger than what exists.
-      poolSize: Math.min(
-        body.config?.poolSize ?? DEFAULT_CONFIG.poolSize,
-        pool.length,
-      ),
-      maxPlayers: Math.min(Math.max(body.config?.maxPlayers ?? 4, 2), 8),
-      startingCredits: Math.min(
-        Math.max(body.config?.startingCredits ?? DEFAULT_CONFIG.startingCredits, 5),
-        999,
-      ),
+      categories,
+      // A host who picked nothing has to settle it in the lobby.
+      categoryMode: categories.length === 0 && categoryMode === "HOST" ? "HOST" : categoryMode,
+      // Two to five players; five is the standard game.
+      maxPlayers: Math.min(Math.max(body.config?.maxPlayers ?? DEFAULT_CONFIG.maxPlayers, 2), 5),
+      // Credits and roster size are fixed for now. The plumbing is here so
+      // they can be opened up later without another migration.
+      startingCredits: DEFAULT_CONFIG.startingCredits,
+      charactersPerPlayer: DEFAULT_CONFIG.charactersPerPlayer,
     };
+
+    // A room is only creatable if some category can actually fill it.
+    const largestCategory = Math.max(
+      ...Object.values(
+        pool.reduce<Record<string, number>>((acc, c) => {
+          acc[c.categoryId] = (acc[c.categoryId] ?? 0) + 1;
+          return acc;
+        }, {}),
+      ),
+      0,
+    );
+    if (largestCategory < config.maxPlayers * config.charactersPerPlayer) {
+      return errorResponse(
+        "POOL_TOO_SMALL",
+        "No category has enough characters for that many players.",
+      );
+    }
 
     const token = newToken();
 

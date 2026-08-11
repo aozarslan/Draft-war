@@ -7,7 +7,7 @@ one room from a shared link, bid against each other for characters with a fixed
 budget, then their squads fight it out in a simulated battle. Rooms keep a
 season leaderboard, so you can play round after round.
 
-*4 players. 40 credits. 20 characters. 5 fighters each.*
+*5 players. 50 credits each. Draft 25 characters. Build the strongest 5-person team.*
 
 **V2** adds a category system: pick Marvel, DC, Hollywood, Action Movies,
 Animals, Fantasy, Video Games or Anime — or mix two for a crossover — and draft
@@ -41,7 +41,7 @@ Wikipedia and Wikimedia.
 | --- | --- |
 | `LOBBY` | Players join by link or 5-character code, pick a nickname, mark ready. The host starts. |
 | `CATEGORY` | The host picks a category, everyone votes, or one is drawn at random with a reveal. Up to four can be mixed for a crossover. |
-| `AUCTION` | Characters from the chosen categories go up one at a time on a 30-second clock. Bid `+1`, `+5`, `MAX`, or `PASS`. **Every bid puts the full 30 seconds back**, so a bidding war cannot be sniped. |
+| `AUCTION` | Exactly `players × 5` characters go up one at a time on a 10-second clock. Bid `+1`, `+5`, `MAX`, or `PASS`. **Every bid puts the full 10 seconds back**, so a bidding war cannot be sniped. |
 | `TEAM_REVIEW` | Every squad is revealed with its stats, synergy and what each fighter cost. |
 | `MAP_SELECTION` | Three battlefields go to a vote. Each one buffs different tags. |
 | `EVENT` | One event card is drawn and shown. It bends the rules for this battle only. |
@@ -54,9 +54,26 @@ Wikipedia and Wikimedia.
   need. With 10 credits and 2 slots to fill, your ceiling is 9. The `MAX` button
   always shows exactly what that is.
 * **The pass rule.** You may pass — unless the remaining characters exactly
-  match the remaining roster slots, in which case somebody has to buy. With the
-  default 4 × 5 = 20 setup that means nothing ever goes unsold, and every credit
-  you overspend early is a credit you cannot spend later.
+  match the remaining roster slots, in which case somebody has to buy. The
+  draft is sized to exactly `players × 5`, so in a standard game nothing ever
+  goes unsold and every credit you overspend early is a credit you cannot spend
+  later.
+
+**The standard game (V2.1)**
+
+| | |
+| --- | --- |
+| Players | 2–5, default **5** |
+| Credits each | **50** |
+| Roster | **5** characters |
+| Draft pool | `players × 5` — **25** for five players |
+| Bid clock | **10 seconds**, reset in full by every bid |
+
+The host sets the room size (2–5) in the lobby; credits and roster size are
+fixed for now, and the plumbing is in place to open them up later. The game
+pool is drawn once, server-side, after the category is settled and before the
+first character opens — the client never sees the wider category pool and
+cannot influence which characters were drawn.
 
 ---
 
@@ -245,9 +262,10 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
    character columns, the category phase and the 30-second bidding clock
 4. `supabase/migrations/0004_seed_v2_characters.sql` — 268 characters with
    Wikipedia data
+5. `supabase/migrations/0005_v2_1_five_players.sql` — five-player rooms, the
+   host's room-size control and the V2.1 defaults
 
-Run them in order. **Upgrading an existing V1 database?** Run only 0003 and
-0004 — they are additive, and the twenty V1 characters are migrated into the
+Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep
 rendering.
 

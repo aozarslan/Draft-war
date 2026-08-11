@@ -27,6 +27,7 @@ type Action =
   | { type: "READY"; ready: boolean }
   | { type: "START"; mode?: "HOST" | "VOTE" | "RANDOM" }
   | { type: "PICK_CATEGORY"; categoryIds: string[] }
+  | { type: "SET_MAX_PLAYERS"; maxPlayers: number }
   | { type: "VOTE_CATEGORY"; categoryId: string }
   | { type: "BID"; auctionId: string; amount: number }
   | { type: "PASS"; auctionId: string }
@@ -66,15 +67,28 @@ export async function POST(
       // phase, which then starts the game once a category is settled.
       case "START": {
         const snap = await getSnapshot(roomId);
+        const preset = (snap.room.config.categories ?? []).filter((id) =>
+          CATEGORIES.some((c) => c.id === id),
+        );
         const mode = action.mode ?? snap.room.config.categoryMode ?? "HOST";
+
         await beginCategorySelection(
           roomId,
           playerId,
           mode,
           snap.room.config.categoryVoteSeconds ?? 25,
         );
-        // A random draw resolves on its own after the reveal animation; a host
-        // pick and a vote both wait for input.
+
+        // The host already chose when the room was created: lock it in right
+        // away so the table gets the reveal and the auction opens, instead of
+        // being asked the same question twice.
+        if (mode === "HOST" && preset.length > 0) {
+          await lockCategory(roomId, preset);
+          return NextResponse.json({ ok: true, mode, categoryIds: preset });
+        }
+
+        // A random draw resolves on its own after the reveal; a host pick with
+        // no preset and a vote both wait for input.
         return NextResponse.json({ ok: true, mode });
       }
 
@@ -89,6 +103,20 @@ export async function POST(
         }
         await lockCategory(roomId, ids);
         return NextResponse.json({ ok: true });
+      }
+
+      case "SET_MAX_PLAYERS": {
+        if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
+        const max = Math.round(Number(action.maxPlayers));
+        if (!Number.isFinite(max) || max < 2 || max > 5) {
+          return errorResponse("BAD_SIZE", "A room holds between 2 and 5 players.");
+        }
+        const result = await rpcOrThrow("dw_set_max_players", {
+          p_room_id: roomId,
+          p_player_id: playerId,
+          p_max: max,
+        });
+        return NextResponse.json(result);
       }
 
       case "VOTE_CATEGORY": {

@@ -87,6 +87,7 @@ export type ClientAction =
   | { type: "READY"; ready: boolean }
   | { type: "START"; mode?: "HOST" | "VOTE" | "RANDOM" }
   | { type: "PICK_CATEGORY"; categoryIds: string[] }
+  | { type: "SET_MAX_PLAYERS"; maxPlayers: number }
   | { type: "VOTE_CATEGORY"; categoryId: string }
   | { type: "BID"; auctionId: string; amount: number }
   | { type: "PASS"; auctionId: string }

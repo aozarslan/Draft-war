@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createRng, randomSeed } from "@/lib/game/rng";
 import { computeAxisBands, simulateBattle } from "@/lib/game/battle";
-import { buildAuctionQueue, charactersPerPlayer } from "@/lib/game/auction";
+import { buildAuctionQueue, draftSize, rosterSize } from "@/lib/game/auction";
 import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
 import { CATEGORIES, LEGACY_CATEGORY_ID, resolveCategoryVote } from "@/lib/game/categories";
@@ -415,22 +415,23 @@ export async function startGame(
   const all = await getDraftableCharacters();
   const pool = all.filter((c) => categories.includes(c.categoryId));
 
-  const perPlayer = charactersPerPlayer(
-    Math.max(1, snap.players.length),
-    Math.min(snap.room.config.poolSize, pool.length),
-    snap.room.config.charactersPerPlayer,
-  );
+  const playerCount = Math.max(1, snap.players.length);
+  const perPlayer = rosterSize(snap.room.config);
+  const wanted = draftSize(playerCount, snap.room.config);
 
-  if (pool.length < snap.players.length * perPlayer) {
+  if (pool.length < wanted) {
     throw new EngineError(
       "POOL_TOO_SMALL",
-      "That category does not have enough characters for this many players.",
+      `That category has ${pool.length} characters but this game needs ${wanted}.`,
       409,
     );
   }
 
+  // The game pool is drawn ONCE, here, before the first character opens, and
+  // is persisted with the game. The client never sees the wider category pool
+  // and cannot influence which characters were drawn.
   const seed = randomSeed();
-  const queue = buildAuctionQueue(pool, snap.room.config, seed);
+  const queue = buildAuctionQueue(pool, snap.room.config, seed, wanted);
 
   await rpcOrThrow("dw_start_game", {
     p_room_id: roomId,

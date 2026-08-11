@@ -9,9 +9,9 @@ export const metadata: Metadata = {
 
 const STEPS = [
   { n: 1, icon: "🎯", title: "Choose a category", body: "The host picks one, everyone votes, or the game draws one at random. Mix categories for a crossover." },
-  { n: 2, icon: "🔗", title: "Join the room", body: "One link, up to four players. No account, no install — a nickname is enough." },
-  { n: 3, icon: "💰", title: "Everyone gets 40 credits", body: "That is your entire budget for the whole draft. Spend it badly and you finish the game with a bench." },
-  { n: 4, icon: "🔨", title: "Characters go to auction", body: "One at a time, 30 seconds each. Every bid puts the full 30 seconds back, so a bidding war never gets sniped." },
+  { n: 2, icon: "🔗", title: "Join the room", body: "One link, two to five players. No account, no install — a nickname is enough." },
+  { n: 3, icon: "💰", title: "Everyone gets 50 credits", body: "That is your entire budget for the whole draft. Five characters, 50 credits — ten each on average, but nothing says you have to spend it evenly." },
+  { n: 4, icon: "🔨", title: "Characters go to auction", body: "Exactly five per player enter the draft — 25 for a five-player game. One at a time, 10 seconds each, and every bid puts the full 10 seconds back so a bidding war never gets sniped." },
   { n: 5, icon: "🛡", title: "Build a team of five", body: "You must keep one credit for every slot you still need, so the game will never let you strand yourself." },
   { n: 6, icon: "🗺", title: "Vote for a battlefield", body: "Each map boosts different kinds of fighter. Pick the one your squad was built for." },
   { n: 7, icon: "🎲", title: "An event card is drawn", body: "It bends the rules for this battle only — melee bonus, tech blackout, doubled map effects." },
@@ -27,7 +27,8 @@ export default function RulesPage() {
         <header className="mb-6">
           <h1 className="headline text-[clamp(2rem,8vw,3.5rem)] neon-text">How to play</h1>
           <p className="mt-1 text-sm text-white/50">
-            Nine steps, about one minute. Build your team, break the bank, win the war.
+            Nine steps, about one minute. 5 players, 50 credits each, 25
+            characters. Build your team, break the bank, win the war.
           </p>
         </header>
 

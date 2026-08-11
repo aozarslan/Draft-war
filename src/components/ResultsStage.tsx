@@ -61,6 +61,21 @@ export function ResultsStage({
   const mvpChar = result.mvp ? charactersById[result.mvp.characterId] : null;
   const mvpStats = result.combatants.find((c) => c.characterId === result.mvp?.characterId);
 
+  const economy = (() => {
+    const sorted = [...result.combatants].sort((a, b) => a.price - b.price);
+    const spent = result.combatants.reduce((s, c) => s + c.price, 0);
+    return {
+      spent,
+      average: result.combatants.length
+        ? Math.round((spent / result.combatants.length) * 10) / 10
+        : 0,
+      cheapest: sorted[0] ? { price: sorted[0].price, combatant: sorted[0] } : null,
+      mostExpensive: sorted.length
+        ? { price: sorted[sorted.length - 1].price, combatant: sorted[sorted.length - 1] }
+        : null,
+    };
+  })();
+
   const nameOf = (c: CombatantResult | null) =>
     c ? (charactersById[c.characterId]?.name ?? c.characterId) : "—";
   const ownerOf = (c: CombatantResult | null) =>
@@ -207,6 +222,73 @@ export function ResultsStage({
           </Panel>
         ))}
       </div>
+
+      {/* ---------- End of game summary ---------- */}
+      <Panel>
+        <SectionTitle>Final table</SectionTitle>
+        <div className="overflow-x-auto px-4 pb-4">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead>
+              <tr className="text-left text-[10px] font-black uppercase tracking-wider text-white/35">
+                <th className="pb-2">Player</th>
+                <th className="pb-2 text-right">Team power</th>
+                <th className="pb-2 text-right">Spent</th>
+                <th className="pb-2 text-right">Left</th>
+                <th className="pb-2">MVP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.teams.map((team) => {
+                const p = snapshot.players.find((x) => x.id === team.playerId);
+                if (!p) return null;
+                const color = playerColor(p.colorIndex).hex;
+                const spent = p.roster.reduce((s, r) => s + r.price, 0);
+                const best = [...result.combatants]
+                  .filter((c) => c.playerId === p.id)
+                  .sort((a, b) => b.performance - a.performance)[0];
+                return (
+                  <tr key={p.id} className="border-t border-white/5">
+                    <td className="py-1.5 font-bold" style={{ color }}>
+                      {MEDALS[team.rank - 1]} {p.nickname}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums">
+                      {Math.round(team.teamRating)}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums text-white/60">{spent}</td>
+                    <td className="py-1.5 text-right tabular-nums text-white/60">{p.credits}</td>
+                    <td className="py-1.5 truncate">{nameOf(best ?? null)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {/* ---------- Economy ---------- */}
+      <Panel>
+        <SectionTitle>Auction economy</SectionTitle>
+        <div className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-4">
+          {[
+            { label: "Credits spent", value: economy.spent },
+            { label: "Average price", value: economy.average },
+            { label: "Most expensive", value: economy.mostExpensive?.price ?? 0,
+              sub: nameOf(economy.mostExpensive?.combatant ?? null) },
+            { label: "Cheapest", value: economy.cheapest?.price ?? 0,
+              sub: nameOf(economy.cheapest?.combatant ?? null) },
+          ].map((s) => (
+            <div key={s.label} className="rounded-xl border border-white/10 px-3 py-3 text-center">
+              <div className="text-2xl font-black tabular-nums">{s.value}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                {s.label}
+              </div>
+              {s.sub ? (
+                <div className="mt-0.5 truncate text-[10px] text-white/30">{s.sub}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       {/* ---------- Value board ---------- */}
       <Panel>

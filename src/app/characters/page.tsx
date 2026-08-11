@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { SiteNav } from "@/components/SiteNav";
 import { CharacterBrowser } from "./CharacterBrowser";
 
@@ -23,7 +24,9 @@ export default function CharactersPage() {
             and real animals in here it is not a measurement of anything.
           </p>
         </header>
-        <CharacterBrowser />
+        <Suspense fallback={null}>
+          <CharacterBrowser />
+        </Suspense>
       </main>
     </>
   );

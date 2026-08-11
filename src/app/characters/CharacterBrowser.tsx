@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Character, Rarity } from "@/lib/game/types";
 import type { Category } from "@/lib/game/categories";
 import { CharacterCard } from "@/components/CharacterCard";
@@ -19,6 +20,9 @@ const PAGE = 48;
  * decode 268 images at once.
  */
 export function CharacterBrowser() {
+  // Links from the landing page and the categories page arrive as
+  // /characters?category=marvel; this used to be ignored entirely.
+  const params = useSearchParams();
   const [data, setData] = useState<{
     characters: Character[];
     categories: Category[];
@@ -26,7 +30,7 @@ export function CharacterBrowser() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [category, setCategory] = useState<string>("all");
+  const [category, setCategory] = useState<string>(params.get("category") ?? "all");
   const [rarity, setRarity] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [minPower, setMinPower] = useState(0);

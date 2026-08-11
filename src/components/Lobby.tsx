@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RoomStore } from "@/lib/client/useRoom";
 import { playerColor } from "@/lib/game/colors";
-import { charactersPerPlayer } from "@/lib/game/auction";
-import { Panel, SectionTitle } from "./ui";
+import { draftSize, rosterSize } from "@/lib/game/auction";
+import { CATEGORIES_BY_ID } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
+import { Panel, SectionTitle } from "./ui";
 
 const CATEGORY_MODES = [
   { id: "HOST", label: "I choose", hint: "You pick the category" },
@@ -13,11 +14,20 @@ const CATEGORY_MODES = [
   { id: "RANDOM", label: "Surprise us", hint: "Drawn at random" },
 ] as const;
 
+const ROOM_SIZES = [2, 3, 4, 5] as const;
+
 export function Lobby({ store }: { store: RoomStore }) {
   const { snapshot, me, act } = store;
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"HOST" | "VOTE" | "RANDOM">("HOST");
+  const [mode, setMode] = useState<"HOST" | "VOTE" | "RANDOM">(
+    snapshot?.room.config.categoryMode ?? "HOST",
+  );
+
+  // The host may have settled the category when they made the room.
+  useEffect(() => {
+    if (snapshot?.room.config.categoryMode) setMode(snapshot.room.config.categoryMode);
+  }, [snapshot?.room.config.categoryMode]);
 
   if (!snapshot) return null;
   const { room, players } = snapshot;
@@ -26,12 +36,15 @@ export function Lobby({ store }: { store: RoomStore }) {
     typeof window !== "undefined" ? `${window.location.origin}/room/${room.code}` : "";
   const everyoneReady = players.length > 0 && players.every((p) => p.isReady);
   const enoughPlayers = players.length >= room.config.minPlayers;
-  const perPlayer = charactersPerPlayer(
-    Math.max(1, players.length),
-    room.config.poolSize,
-    room.config.charactersPerPlayer,
-  );
-  const leftover = room.config.poolSize - players.length * perPlayer;
+  const isFull = players.length >= room.config.maxPlayers;
+
+  const perPlayer = rosterSize(room.config);
+  const draftTotal = draftSize(Math.max(players.length, 1), room.config);
+  const plannedTotal = draftSize(room.config.maxPlayers, room.config);
+
+  const preset = (room.config.categories ?? [])
+    .map((id) => CATEGORIES_BY_ID[id])
+    .filter(Boolean);
 
   async function copyLink() {
     try {
@@ -64,6 +77,10 @@ export function Lobby({ store }: { store: RoomStore }) {
           {room.name ? (
             <p className="mt-1 text-sm font-semibold text-white/60">{room.name}</p>
           ) : null}
+          <p className="mt-2 text-xs font-semibold text-white/45">
+            {room.config.maxPlayers} players. {room.config.startingCredits} credits each.
+            Draft {plannedTotal} characters. Build the strongest {perPlayer}-person team.
+          </p>
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <button className="btn btn-primary flex-1" onClick={copyLink}>
@@ -89,7 +106,10 @@ export function Lobby({ store }: { store: RoomStore }) {
       <Panel>
         <SectionTitle
           right={
-            <span className="text-[11px] font-black text-white/45">
+            <span
+              className={`text-[11px] font-black ${isFull ? "text-amber-300" : "text-white/45"}`}
+            >
+              {isFull ? "ROOM FULL · " : ""}
               {players.length} / {room.config.maxPlayers}
             </span>
           }
@@ -121,7 +141,8 @@ export function Lobby({ store }: { store: RoomStore }) {
                   </span>
                   <span className="text-[11px] text-white/40">
                     {p.isHost ? "👑 Host · " : ""}
-                    {p.connected ? "online" : "reconnecting…"}
+                    💰 {p.credits}
+                    {p.connected ? "" : " · reconnecting…"}
                     {p.gamesPlayed > 0 ? ` · ${p.points} pts` : ""}
                   </span>
                 </span>
@@ -156,10 +177,10 @@ export function Lobby({ store }: { store: RoomStore }) {
         <SectionTitle>This game</SectionTitle>
         <div className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-4">
           {[
-            { label: "Credits", value: room.config.startingCredits },
-            { label: "Pool", value: room.config.poolSize },
-            { label: "Per player", value: perPlayer },
-            { label: "Unused", value: Math.max(0, leftover) },
+            { label: "Credits each", value: room.config.startingCredits },
+            { label: "Roster", value: perPlayer },
+            { label: "Draft", value: draftTotal },
+            { label: "Bid clock", value: `${room.config.auctionSeconds}s` },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border border-white/10 px-3 py-3 text-center">
               <div className="text-2xl font-black tabular-nums">{s.value}</div>
@@ -172,6 +193,69 @@ export function Lobby({ store }: { store: RoomStore }) {
       </Panel>
 
       {me?.isHost ? (
+        <Panel>
+          <SectionTitle
+            right={
+              <span className="text-[10px] text-white/30">
+                credits and roster are fixed for now
+              </span>
+            }
+          >
+            Max players
+          </SectionTitle>
+          <div className="grid grid-cols-4 gap-2 px-4 pb-4">
+            {ROOM_SIZES.map((n) => {
+              const on = room.config.maxPlayers === n;
+              const tooSmall = n < players.length;
+              return (
+                <button
+                  key={n}
+                  disabled={tooSmall}
+                  onClick={() => {
+                    play("click");
+                    void act({ type: "SET_MAX_PLAYERS", maxPlayers: n });
+                  }}
+                  aria-pressed={on}
+                  title={tooSmall ? "Somebody is already sitting in that seat" : undefined}
+                  className="rounded-xl border py-3 text-center transition disabled:opacity-30"
+                  style={{
+                    borderColor: on ? "#22d3ee" : "rgba(255,255,255,0.1)",
+                    background: on ? "rgba(34,211,238,0.12)" : "transparent",
+                  }}
+                >
+                  <div className="text-xl font-black tabular-nums">{n}</div>
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-white/40">
+                    {n * perPlayer} chars
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </Panel>
+      ) : null}
+
+      {/* The host who already chose at creation is not asked again. */}
+      {me?.isHost && preset.length > 0 ? (
+        <Panel>
+          <SectionTitle>Battle</SectionTitle>
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
+            {preset.map((c) => (
+              <span
+                key={c.id}
+                className="rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
+                style={{ borderColor: `${c.accent}66`, color: c.accent }}
+              >
+                {c.icon} {c.name}
+              </span>
+            ))}
+            <span className="text-[11px] text-white/35">
+              {preset.length > 1 ? "Crossover — picked when you made the room." : "Picked when you made the room."}
+            </span>
+          </div>
+        </Panel>
+      ) : null}
+
+      {me?.isHost && preset.length === 0 ? (
         <Panel>
           <SectionTitle>How do we pick the category?</SectionTitle>
           <div className="grid grid-cols-3 gap-2 px-4 pb-4">
@@ -215,12 +299,12 @@ export function Lobby({ store }: { store: RoomStore }) {
             onClick={startGame}
           >
             {busy
-              ? "Opening category select…"
+              ? "Opening the draft…"
               : !enoughPlayers
                 ? `Need ${room.config.minPlayers} players`
                 : !everyoneReady
                   ? "Waiting for everyone"
-                  : "Start game"}
+                  : `Start · ${draftTotal} characters`}
           </button>
         ) : (
           <p className="text-center text-xs font-semibold text-white/40">

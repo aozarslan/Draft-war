@@ -48,24 +48,27 @@ const fail = (code: AuctionErrorCode): RuleResult => ({
 
 const OK: RuleResult = { ok: true };
 
-/**
- * How many characters each player must end up with.
- *
- * 4 players / 20 characters -> 5 each (pool fully consumed)
- * 3 players / 20 characters -> 6 each (2 characters never auctioned)
- * 2 players / 20 characters -> 10 each
- *
- * A host override always wins, as long as it fits in the pool.
- */
-export function charactersPerPlayer(
-  playerCount: number,
-  poolSize: number,
-  override?: number | null,
+/** Roster size every player has to fill. Five, unless the host changed it. */
+export function rosterSize(
+  config: Pick<RoomConfig, "charactersPerPlayer">,
 ): number {
-  if (override && override > 0) {
-    return Math.min(override, Math.floor(poolSize / playerCount));
-  }
-  return Math.max(1, Math.floor(poolSize / playerCount));
+  const n = Math.round(config.charactersPerPlayer);
+  return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/**
+ * How many characters go into the auction.
+ *
+ * Always exactly `players x roster`, so the draft consumes the pool precisely:
+ * five players drafting five each auction 25 characters and finish 25/25 with
+ * nothing unsold. That equality is also what makes passing impossible in a
+ * full game — every character has to find an owner.
+ */
+export function draftSize(
+  playerCount: number,
+  config: Pick<RoomConfig, "charactersPerPlayer">,
+): number {
+  return Math.max(1, playerCount) * rosterSize(config);
 }
 
 /**
@@ -209,15 +212,17 @@ export function shouldResolveEarly(
  *
  * `characters` is already filtered to the categories in play. The pool is
  * SELECTED first and ordered second — with a 50-character category and a
- * 20-character game, taking the first twenty every time would mean every
- * Marvel game drafted the same twenty heroes.
+ * 25-character game, taking the first twenty-five every time would mean every
+ * Marvel game drafted the same heroes. Selection happens once, server-side,
+ * before the first character opens, and is then persisted with the game.
  */
 export function buildAuctionQueue(
   characters: Character[],
-  config: Pick<RoomConfig, "auctionOrder" | "poolSize" | "manualOrder">,
+  config: Pick<RoomConfig, "auctionOrder" | "manualOrder">,
   seed: string,
+  size: number,
 ): string[] {
-  const size = Math.min(config.poolSize || characters.length, characters.length);
+  const wanted = Math.min(Math.max(1, size), characters.length);
   const rng = createRng(seed);
 
   switch (config.auctionOrder) {
@@ -225,7 +230,7 @@ export function buildAuctionQueue(
       // Strongest first, and the pool is the strongest `size` of the category.
       return [...characters]
         .sort((a, b) => b.gamePower - a.gamePower || a.id.localeCompare(b.id))
-        .slice(0, size)
+        .slice(0, wanted)
         .map((c) => c.id);
     }
     case "MANUAL": {
@@ -234,10 +239,10 @@ export function buildAuctionQueue(
       const rest = rng
         .shuffle(characters.map((c) => c.id))
         .filter((id) => !manual.includes(id));
-      return [...manual, ...rest].slice(0, size);
+      return [...manual, ...rest].slice(0, wanted);
     }
     case "RANDOM":
     default:
-      return rng.shuffle(characters.map((c) => c.id)).slice(0, size);
+      return rng.shuffle(characters.map((c) => c.id)).slice(0, wanted);
   }
 }
