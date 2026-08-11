@@ -251,6 +251,12 @@ Run them in order. **Upgrading an existing V1 database?** Run only 0003 and
 new shape and retired from drafting rather than deleted, so finished games keep
 rendering.
 
+`0004_seed_v2_characters.sql` is ~230 KB, which some browsers dislike pasting
+into the SQL editor in one go. `supabase/migrations/0004_parts/` holds the same
+seed split into five smaller files — run them in any order, each is a
+self-contained idempotent upsert. Use either the single file or the parts, not
+both.
+
 Paste the whole file, press **Run**, confirm it reports success, then do the
 second one. Re-running them later is safe: the schema uses `if not exists` /
 `create or replace`, and the seed is an upsert.
