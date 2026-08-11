@@ -4,6 +4,7 @@ import type { Snapshot } from "@/lib/server/engine";
 import type { Character, BattleMap, EventCard } from "@/lib/game/types";
 import type { Category } from "@/lib/game/categories";
 import type { StoredSession } from "./session";
+import { accountHeaders } from "./account";
 
 export interface Reference {
   characters: Character[];
@@ -50,7 +51,7 @@ export async function createRoom(input: {
 }): Promise<{ roomId: string; playerId: string; code: string; token: string }> {
   const res = await fetch("/api/rooms", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...accountHeaders() },
     body: JSON.stringify(input),
   });
   return parse(res);
@@ -62,7 +63,7 @@ export async function joinRoom(input: {
 }): Promise<{ roomId: string; playerId: string; code: string; token: string }> {
   const res = await fetch("/api/rooms/join", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...accountHeaders() },
     body: JSON.stringify(input),
   });
   return parse(res);

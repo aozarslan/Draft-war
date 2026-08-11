@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ProfileBadge } from "./ProfileBadge";
 
 const LINKS = [
   { href: "/", label: "Home" },
@@ -9,6 +10,7 @@ const LINKS = [
   { href: "/categories", label: "Categories" },
   { href: "/characters", label: "Characters" },
   { href: "/rules", label: "Rules" },
+  { href: "/leaderboard", label: "Ranks" },
 ];
 
 /**
@@ -41,9 +43,7 @@ export function SiteNav() {
             );
           })}
         </div>
-        <Link href="/#play" className="btn btn-primary !min-h-9 shrink-0 !px-3 !text-[11px]">
-          Play
-        </Link>
+        <ProfileBadge />
       </nav>
     </header>
   );

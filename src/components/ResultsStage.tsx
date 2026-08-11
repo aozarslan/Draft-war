@@ -8,6 +8,7 @@ import { getCategory } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
 import { CharacterArt } from "./CharacterArt";
 import { Panel, SectionTitle } from "./ui";
+import { MatchRewards } from "./MatchRewards";
 
 const MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"];
 
@@ -222,6 +223,8 @@ export function ResultsStage({
           </Panel>
         ))}
       </div>
+
+      <MatchRewards gameId={snapshot.game?.id ?? null} />
 
       {/* ---------- End of game summary ---------- */}
       <Panel>

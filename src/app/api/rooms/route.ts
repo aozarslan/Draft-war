@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, type CategoryMode, type RoomConfig } from "@/lib/game/t
 import { CATEGORIES } from "@/lib/game/categories";
 import { EngineError, getCharacters, rpc } from "@/lib/server/engine";
 import { errorResponse, newRoomCode, newToken } from "@/lib/server/session";
+import { optionalProfile } from "@/lib/server/profile";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       // they can be opened up later without another migration.
       startingCredits: DEFAULT_CONFIG.startingCredits,
       charactersPerPlayer: DEFAULT_CONFIG.charactersPerPlayer,
+      ranked: Boolean(body.config?.ranked),
     };
 
     // A room is only creatable if some category can actually fill it.
@@ -77,6 +79,15 @@ export async function POST(request: Request) {
           p_config: config,
           p_token: token,
         });
+        // Attach the creator's profile to their seat when they have one.
+        const profile = await optionalProfile(request);
+        if (profile && result.playerId) {
+          await rpc("dw_link_player_profile", {
+            p_player_id: result.playerId,
+            p_profile_id: profile.profileId,
+            p_token: request.headers.get("x-dw-profile-token"),
+          });
+        }
         return NextResponse.json({ ...result, token });
       } catch (err) {
         const message = err instanceof Error ? err.message : "";

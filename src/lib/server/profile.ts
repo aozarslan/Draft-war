@@ -1,0 +1,201 @@
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { EngineError, rpc, rpcOrThrow } from "@/lib/server/engine";
+import { errorResponse } from "@/lib/server/session";
+import {
+  levelFromXp,
+  rankDelta,
+  rankFromPoints,
+  totalXp,
+  xpForMatch,
+  type XpBreakdown,
+} from "@/lib/game/progression";
+import type { BattleResult } from "@/lib/game/types";
+
+/**
+ * Accounts without accounts.
+ *
+ * A profile is a `(profileId, token)` pair minted when somebody picks a
+ * username, stored in the browser and presented as headers — the same shape as
+ * the per-room player session, but persistent and room-independent. No email,
+ * no password, no OAuth round trip, and the game stays playable with no
+ * profile at all.
+ *
+ * The trade-off is honest and worth stating: the account lives in one browser.
+ * Signing in on a second device is a future feature, and the token table is
+ * ready for it.
+ */
+
+export const PROFILE_ID_HEADER = "x-dw-profile";
+export const PROFILE_TOKEN_HEADER = "x-dw-profile-token";
+
+export interface AuthedProfile {
+  profileId: string;
+}
+
+/** Resolves the caller's profile, or null when they are playing as a guest. */
+export async function optionalProfile(
+  request: Request,
+): Promise<AuthedProfile | null> {
+  const profileId = request.headers.get(PROFILE_ID_HEADER);
+  const token = request.headers.get(PROFILE_TOKEN_HEADER);
+  if (!profileId || !token) return null;
+
+  const { data, error } = await supabaseAdmin()
+    .from("profile_secrets")
+    .select("token")
+    .eq("profile_id", profileId)
+    .maybeSingle();
+
+  if (error) throw new EngineError("DB_ERROR", error.message, 500);
+  if (!data || (data as { token: string }).token !== token) return null;
+  return { profileId };
+}
+
+/** Same, but refuses the request when there is no valid profile. */
+export async function requireProfile(
+  request: Request,
+): Promise<AuthedProfile | NextResponse> {
+  const profile = await optionalProfile(request);
+  if (!profile) {
+    return errorResponse("NO_PROFILE", "Create a DRAFT WAR profile first.", 401);
+  }
+  return profile;
+}
+
+// ---------------------------------------------------------------------------
+// Match rewards
+// ---------------------------------------------------------------------------
+
+export interface RewardLine {
+  profileId: string;
+  username: string;
+  placement: number;
+  xp: number;
+  breakdown: XpBreakdown[];
+  rankDelta: number;
+  levelBefore: number;
+  levelAfter: number;
+  rankBefore: string;
+  rankAfter: string;
+  levelledUp: boolean;
+}
+
+interface SeatRow {
+  id: string;
+  nickname: string;
+  profile_id: string | null;
+  credits: number;
+}
+
+/**
+ * Pays out a finished battle.
+ *
+ * Server-authoritative and idempotent: the amounts are computed here from the
+ * stored result, and `dw_award_match` refuses a second payout for the same
+ * (profile, match) pair. A client can neither claim a win nor claim it twice.
+ *
+ * Guests are skipped silently — they played, they just have nowhere to bank it.
+ */
+export async function awardMatchRewards(
+  roomId: string,
+  gameId: string,
+  roomCode: string,
+  result: BattleResult,
+  ranked: boolean,
+): Promise<RewardLine[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("players")
+    .select("id, nickname, profile_id, credits")
+    .eq("room_id", roomId);
+  if (error) throw new EngineError("DB_ERROR", error.message, 500);
+
+  const seats = (data ?? []) as SeatRow[];
+  const withProfile = seats.filter((s) => s.profile_id);
+  if (withProfile.length === 0) return [];
+
+  const playerCount = result.teams.length;
+  const lines: RewardLine[] = [];
+
+  for (const seat of withProfile) {
+    const team = result.teams.find((t) => t.playerId === seat.id);
+    if (!team) continue;
+
+    const mine = result.combatants.filter((c) => c.playerId === seat.id);
+    const isMvp = result.mvp?.playerId === seat.id;
+    const creditsSpent = mine.reduce((sum, c) => sum + c.price, 0);
+    const priciest = [...mine].sort((a, b) => b.price - a.price)[0];
+
+    const breakdown = xpForMatch({
+      rank: team.rank,
+      playerCount,
+      isMvp,
+      charactersDrafted: mine.length,
+      ranked,
+    });
+    const xp = totalXp(breakdown);
+    const delta = ranked ? rankDelta(team.rank, playerCount) : 0;
+
+    const summary = {
+      roomCode,
+      placement: team.rank,
+      playerCount,
+      isMvp,
+      mvpCharacter: isMvp ? result.mvp?.characterId : null,
+      charactersDrafted: mine.length,
+      creditsSpent,
+      mostExpensivePrice: priciest?.price ?? 0,
+      mostExpensiveName: priciest?.characterId ?? null,
+      teamRating: team.teamRating,
+      categoryIds: result.categoryIds,
+      mapId: result.mapId,
+      eventId: result.eventId,
+      roster: mine.map((c) => ({ characterId: c.characterId, price: c.price })),
+    };
+
+    const awarded = await rpcOrThrow("dw_award_match", {
+      p_game_id: gameId,
+      p_profile_id: seat.profile_id,
+      p_xp: xp,
+      p_rank_delta: delta,
+      p_ranked: ranked,
+      p_summary: summary,
+    });
+
+    // A repeat call returns early; report the line without pretending it paid.
+    const alreadyAwarded = Boolean(awarded.alreadyAwarded);
+    const totalAfter = Number(awarded.totalXp ?? 0);
+    const levelAfter = Number(awarded.level ?? 1);
+    const levelBefore = levelFromXp(Math.max(0, totalAfter - xp)).level;
+    const rpBefore = Number(awarded.rankPointsBefore ?? 0);
+    const rpAfter = Number(awarded.rankPointsAfter ?? rpBefore);
+
+    lines.push({
+      profileId: seat.profile_id!,
+      username: seat.nickname,
+      placement: team.rank,
+      xp: alreadyAwarded ? 0 : xp,
+      breakdown: alreadyAwarded ? [] : breakdown,
+      rankDelta: alreadyAwarded ? 0 : delta,
+      levelBefore,
+      levelAfter,
+      rankBefore: rankFromPoints(rpBefore).label,
+      rankAfter: rankFromPoints(rpAfter).label,
+      levelledUp: !alreadyAwarded && levelAfter > levelBefore,
+    });
+  }
+
+  return lines;
+}
+
+export async function getProfile(profileId: string) {
+  const data = await rpc("dw_profile", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(
+      String(data.code ?? "PROFILE_NOT_FOUND"),
+      String(data.message ?? "Profile not found."),
+      404,
+    );
+  }
+  return data;
+}

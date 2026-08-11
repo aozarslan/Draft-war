@@ -31,6 +31,7 @@ function Landing() {
   // Category choice made at creation time. Empty + HOST means "decide later".
   const [picked, setPicked] = useState<string[]>([]);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("HOST");
+  const [ranked, setRanked] = useState(false);
 
   useEffect(() => {
     setNickname(lastNickname());
@@ -63,7 +64,7 @@ function Landing() {
       const result = await createRoom({
         nickname: nickname.trim(),
         roomName,
-        config: { categories: picked, categoryMode },
+        config: { categories: picked, categoryMode, ranked },
       });
       setSession(result.code, {
         playerId: result.playerId,
@@ -232,6 +233,42 @@ function Landing() {
                   );
                 })}
               </div>
+            </fieldset>
+
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-bold uppercase tracking-widest text-white/45">
+                Match type
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { on: false, icon: "🎮", label: "Casual", hint: "XP only, no rank risk" },
+                  { on: true, icon: "🏆", label: "Ranked", hint: "Season rank points move" },
+                ].map((m) => (
+                  <button
+                    key={m.label}
+                    type="button"
+                    onClick={() => {
+                      play("click");
+                      setRanked(m.on);
+                    }}
+                    aria-pressed={ranked === m.on}
+                    className="rounded-xl border px-2 py-2.5 text-center transition active:scale-95"
+                    style={{
+                      borderColor: ranked === m.on ? "#22d3ee" : "rgba(255,255,255,0.1)",
+                      background: ranked === m.on ? "rgba(34,211,238,0.12)" : "transparent",
+                    }}
+                  >
+                    <span className="text-xs font-black uppercase tracking-wide">
+                      {m.icon} {m.label}
+                    </span>
+                    <span className="block text-[10px] text-white/40">{m.hint}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-white/25">
+                Matchmaking is not built yet, so ranked means ranked against the
+                friends in your room.
+              </p>
             </fieldset>
 
             {error ? <p className="text-sm font-semibold text-rose-400">{error}</p> : null}

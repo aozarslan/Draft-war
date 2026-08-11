@@ -548,10 +548,29 @@ export async function runBattle(roomId: string): Promise<void> {
     bands: computeAxisBands(all),
   });
 
-  await rpcOrThrow("dw_store_battle", {
+  const stored = await rpcOrThrow("dw_store_battle", {
     p_game_id: snap.game.id,
     p_result: result,
   });
+
+  // Progression is paid out from the stored result, server-side. A repeated
+  // tick lands on `noop` here and on the ledger's unique index there, so a
+  // match can never pay twice.
+  if (!stored.noop) {
+    const { awardMatchRewards } = await import("./profile");
+    try {
+      await awardMatchRewards(
+        roomId,
+        snap.game.id,
+        snap.room.code,
+        result,
+        Boolean(snap.room.config.ranked),
+      );
+    } catch (err) {
+      // A reward failure must never cost anybody the battle they just played.
+      console.error("[DRAFT WAR] match rewards failed", err);
+    }
+  }
 }
 
 /**

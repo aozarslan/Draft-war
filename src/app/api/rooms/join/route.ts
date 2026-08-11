@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { EngineError, rpc } from "@/lib/server/engine";
+import { optionalProfile } from "@/lib/server/profile";
 import { errorResponse, newToken } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,15 @@ export async function POST(request: Request) {
     if (result.ok === false) {
       const status = result.code === "ROOM_NOT_FOUND" ? 404 : 409;
       return errorResponse(String(result.code), String(result.message), status);
+    }
+
+    const profile = await optionalProfile(request);
+    if (profile && result.playerId) {
+      await rpc("dw_link_player_profile", {
+        p_player_id: result.playerId,
+        p_profile_id: profile.profileId,
+        p_token: request.headers.get("x-dw-profile-token"),
+      });
     }
 
     return NextResponse.json({ ...result, token });

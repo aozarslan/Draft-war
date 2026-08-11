@@ -170,6 +170,12 @@ export interface RoomConfig {
   categories: string[];
   categoryMode: CategoryMode;
   categoryVoteSeconds: number;
+  /**
+   * Ranked games move season rank points; casual ones only award XP.
+   * Matchmaking is not built yet, so this currently means "ranked among the
+   * friends in this room".
+   */
+  ranked: boolean;
   /** Character ids, only used when auctionOrder === "MANUAL". */
   manualOrder?: string[];
 }
@@ -186,6 +192,7 @@ export const DEFAULT_CONFIG: RoomConfig = {
   categories: [],
   categoryMode: "HOST",
   categoryVoteSeconds: 25,
+  ranked: false,
 };
 
 export interface RosterEntry {
