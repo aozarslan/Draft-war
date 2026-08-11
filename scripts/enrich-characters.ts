@@ -28,6 +28,9 @@ export interface WikiRecord {
   fetchedAt: string;
 }
 
+/** Categories whose entries really are real-world subjects. */
+const FICTION_FREE = new Set(["hollywood", "animals"]);
+
 const DATA_DIR = join(process.cwd(), "data");
 const CACHE_PATH = join(DATA_DIR, "wiki-cache.json");
 
@@ -65,6 +68,29 @@ async function main() {
     const prefix = `[${String(i + 1).padStart(3)}/${targets.length}] ${character.name}`;
 
     let summary = await getSummary(term);
+
+    /**
+     * A fictional character whose name is also a common noun quietly resolves
+     * to the wrong subject: "Wolverine" is an animal, "Magneto" is a machine,
+     * "Thor" is a Norse god. The page exists and the title matches, so a name
+     * check cannot catch it — check the SUBJECT instead and re-search with the
+     * universe attached when it does not look like fiction.
+     */
+    const FICTION =
+      /character|superhero|super-?villain|comic|marvel|dc\b|fictional|film|movie|video game|manga|anime|protagonist|series|franchise|novel|mytholog|legend|dragon|demon|pok[eé]mon/i;
+    const looksWrong = (s: { title: string; description: string | null } | null) =>
+      Boolean(s) && !FICTION.test(`${s!.title} ${s!.description ?? ""}`);
+
+    if (!FICTION_FREE.has(character.categoryId) && looksWrong(summary)) {
+      const better = await searchPages(`${character.name} ${character.universe}`, 5);
+      for (const hit of better) {
+        const candidate = await getSummary(hit.title);
+        if (candidate && !looksWrong(candidate)) {
+          summary = candidate;
+          break;
+        }
+      }
+    }
 
     // The authored title may be wrong or a redirect that has since moved.
     // Fall back to search rather than silently storing nothing.

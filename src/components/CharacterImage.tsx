@@ -14,8 +14,11 @@ import { CharacterArt } from "./CharacterArt";
  * characters get the procedural poster instead, and it is designed to look
  * deliberate rather than like a failure.
  *
- * Images are lazy-loaded and fade in over a skeleton, because a category page
- * can easily put fifty of them on screen at once on a phone.
+ * The image is NOT faded in by JavaScript. An earlier version kept it at
+ * opacity 0 until `onLoad` fired, and that event is unreliable: a cached image
+ * can finish before React attaches the handler, and the picture then stays
+ * invisible forever. The skeleton simply sits behind the image instead, so a
+ * missed event costs nothing — only a genuine `onError` changes what renders.
  */
 export function CharacterImage({
   character,
@@ -29,11 +32,8 @@ export function CharacterImage({
   priority?: boolean;
   sizes?: string;
 }) {
-  const [state, setState] = useState<"loading" | "loaded" | "failed">(
-    character.thumbnailUrl ? "loading" : "failed",
-  );
-
-  const showFallback = state === "failed" || !character.thumbnailUrl;
+  const [failed, setFailed] = useState(false);
+  const showFallback = failed || !character.thumbnailUrl;
 
   return (
     <div className={`relative h-full w-full overflow-hidden bg-black/40 ${className}`}>
@@ -46,26 +46,24 @@ export function CharacterImage({
         </>
       ) : (
         <>
-          {state === "loading" ? (
-            <div
-              className="absolute inset-0 animate-pulse"
-              style={{
-                background: `linear-gradient(135deg, ${character.palette[0]}, ${character.palette[1]}55)`,
-              }}
-            />
-          ) : null}
+          {/* Sits behind the image: covers the gap while it downloads, and
+              shows through transparent PNG artwork afterwards. */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `linear-gradient(150deg, ${character.palette[0]}, ${character.palette[1]}44)`,
+            }}
+          />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
+            key={character.thumbnailUrl}
             src={character.thumbnailUrl!}
             alt={character.name}
             sizes={sizes}
             loading={priority ? "eager" : "lazy"}
             decoding="async"
-            onLoad={() => setState("loaded")}
-            onError={() => setState("failed")}
-            className={`h-full w-full object-cover object-top transition-opacity duration-500 ${
-              state === "loaded" ? "opacity-100" : "opacity-0"
-            }`}
+            onError={() => setFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover object-top"
           />
         </>
       )}

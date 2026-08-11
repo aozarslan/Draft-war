@@ -9,6 +9,11 @@ season leaderboard, so you can play round after round.
 
 *4 players. 40 credits. 20 characters. 5 fighters each.*
 
+**V2** adds a category system: pick Marvel, DC, Hollywood, Action Movies,
+Animals, Fantasy, Video Games or Anime — or mix two for a crossover — and draft
+from 268 characters with artwork, descriptions and licence data pulled from
+Wikipedia and Wikimedia.
+
 ---
 
 ## Table of contents
@@ -35,7 +40,8 @@ season leaderboard, so you can play round after round.
 | Phase | What happens |
 | --- | --- |
 | `LOBBY` | Players join by link or 5-character code, pick a nickname, mark ready. The host starts. |
-| `AUCTION` | Characters go up one at a time on a 20-second clock. Bid `+1`, `+5`, `MAX`, or `PASS`. A bid in the last 5 seconds adds 5 seconds. |
+| `CATEGORY` | The host picks a category, everyone votes, or one is drawn at random with a reveal. Up to four can be mixed for a crossover. |
+| `AUCTION` | Characters from the chosen categories go up one at a time on a 30-second clock. Bid `+1`, `+5`, `MAX`, or `PASS`. **Every bid puts the full 30 seconds back**, so a bidding war cannot be sniped. |
 | `TEAM_REVIEW` | Every squad is revealed with its stats, synergy and what each fighter cost. |
 | `MAP_SELECTION` | Three battlefields go to a vote. Each one buffs different tags. |
 | `EVENT` | One event card is drawn and shown. It bends the rules for this battle only. |
@@ -51,6 +57,76 @@ season leaderboard, so you can play round after round.
   match the remaining roster slots, in which case somebody has to buy. With the
   default 4 × 5 = 20 setup that means nothing ever goes unsold, and every credit
   you overspend early is a credit you cannot spend later.
+
+---
+
+## Categories (V2)
+
+Eight categories, each owning three things: the stats its characters are rated
+on, how those stats feed the five axes the battle engine fights with, and the
+synergy groups that reward a coherent squad.
+
+| Category | Characters | Stats |
+| --- | --- | --- |
+| 🦸 Marvel | 50 | Power · Speed · Durability · Combat · Intelligence · Special |
+| 🦇 DC | 50 | Power · Speed · Durability · Combat · Intelligence · Special |
+| 🎬 Hollywood | 40 | Strength · Speed · Combat · Weapons · Tactics · Stamina |
+| 🔫 Action Movies | 30 | Combat · Speed · Weapons · Tactics · Durability · Special |
+| 🐅 Animals | 30 | Mass · Strength · Speed · Bite · Defense · Aggression |
+| 🧙 Fantasy | 24 | Power · Speed · Durability · Combat · Magic · Special |
+| 🎮 Video Games | 22 | Power · Speed · Durability · Combat · Skill · Special |
+| 🍥 Anime | 22 | Power · Speed · Durability · Combat · Intelligence · Special |
+
+**Canonical axes.** The simulator never reads a category stat key. Each category
+projects its own ratings onto five axes — power, speed, defense, strategy,
+special — which is what lets a tiger, an actor and a Norse god share a
+battlefield without a single special case in the engine.
+
+**Crossover normalisation.** Mixing categories rescales every character from its
+own category's combat-value distribution onto one shared band, so the best
+Hollywood actor and the best Kryptonian arrive at the same effective ceiling.
+Single-category games use the authored numbers untouched.
+
+**Game power is not decorative.** The 0–100 number on every card is derived from
+the same quantity the round loop fights with — damage output multiplied by
+survivability — so a higher number really is a better fighter. The win
+probability is fitted against the simulator rather than guessed; see
+`winProbabilities` in `src/lib/game/battle.ts`.
+
+**Synergy** is named on the results screen (Avengers ×5, Pack Hunters ×3) and
+capped at +10%, so it flavours a draft without deciding it.
+
+---
+
+## Wikipedia / Wikimedia integration
+
+`src/lib/server/wikipedia.ts` is a small client over the documented MediaWiki
+APIs — REST search, REST page summary, and the Action API for `pageimages` and
+`imageinfo`. No HTML scraping.
+
+Three rules it enforces:
+
+1. **A real User-Agent.** Wikimedia's policy asks for a contact; a UA without
+   one gets throttled within a handful of requests.
+2. **No hammering.** Calls are serialised with a minimum gap and back off on
+   429/5xx, honouring `Retry-After`.
+3. **Cache.** Nothing calls Wikimedia during a match. The pool is enriched
+   offline into `data/wiki-cache.json`, which is committed, and the SQL seed is
+   generated from it.
+
+**Images are never re-hosted.** We store the Wikimedia thumbnail URL plus
+whatever licence and author metadata Wikimedia reports, and show it as
+attribution under the card. When a licence is not reported we say where the
+image came from without implying anything about reuse. 250 of 268 characters
+have an image; the rest are articles that carry only non-free cover art, which
+the Wikimedia APIs correctly refuse to serve — those get a generated placeholder
+rather than a broken image.
+
+**Wrong-subject protection.** A fictional character whose name is also a common
+noun quietly resolves to the wrong page: Wolverine is an animal, Magneto is a
+machine, Thor is a Norse god. A name check cannot catch this, so the enrichment
+script checks the *subject* of the resolved page and re-searches with the
+universe attached when it does not look like fiction.
 
 ---
 
@@ -164,7 +240,16 @@ it to finish provisioning.
 Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
 
 1. `supabase/migrations/0001_init.sql` — schema, RLS policies, game functions
-2. `supabase/migrations/0002_seed_characters.sql` — the 20-character pool
+2. `supabase/migrations/0002_seed_characters.sql` — the original V1 pool
+3. `supabase/migrations/0003_v2_categories.sql` — categories, the richer
+   character columns, the category phase and the 30-second bidding clock
+4. `supabase/migrations/0004_seed_v2_characters.sql` — 268 characters with
+   Wikipedia data
+
+Run them in order. **Upgrading an existing V1 database?** Run only 0003 and
+0004 — they are additive, and the twenty V1 characters are migrated into the
+new shape and retired from drafting rather than deleted, so finished games keep
+rendering.
 
 Paste the whole file, press **Run**, confirm it reports success, then do the
 second one. Re-running them later is safe: the schema uses `if not exists` /
@@ -212,6 +297,14 @@ which are server-only route handlers.
 
 ```bash
 npm run dev
+```
+
+Useful scripts:
+
+```bash
+npm run wiki:enrich   # refresh Wikipedia data into data/wiki-cache.json
+npm run seed:sql      # regenerate the character seed migration
+npm run balance       # print the game-power spread of every category
 ```
 
 Open <http://localhost:3000>. To play against yourself, open the room link in a
@@ -415,6 +508,19 @@ look in the browser console for a `[DRAFT WAR] Realtime disabled` warning.
   happen in the auction — but there are no in-battle choices.
 * **Manual auction order** is supported by the engine and config but has no UI
   yet; the host would have to set `manualOrder` in the room config.
+* **A deliberately mono-category squad in a crossover can be strong.** With the
+  pool shuffled from both categories the winners' rosters come out evenly
+  spread (a test asserts it), but if a player somehow drafted five characters
+  from one side on a map that happens to favour their tags, that squad has an
+  edge. Normalisation equalises the categories, not every map interaction.
+* **18 characters have no image**, because their Wikipedia article carries only
+  non-free cover art. They render a generated placeholder that says so.
+* **The admin importer saves bulk imports with neutral stats** (60 across the
+  board); they need editing afterwards to be interesting.
+* **Game power is comparable within a category, not across them.** Hollywood
+  tops out around 83 and DC around 92 because the underlying ratings really are
+  different; crossover games normalise it away, single-category games never
+  need to.
 
 ---
 
