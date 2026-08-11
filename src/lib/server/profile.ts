@@ -221,6 +221,18 @@ export async function awardMatchRewards(
   return lines;
 }
 
+/**
+ * The shop front. Works for a guest too — they can browse, they just have no
+ * balance and nothing to buy with.
+ */
+export async function getShop(profileId: string | null) {
+  const data = await rpc("dw_shop", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "SHOP_ERROR"), String(data.message), 500);
+  }
+  return data;
+}
+
 /** What a profile owns and what it is wearing. */
 export async function getInventory(profileId: string) {
   const data = await rpc("dw_inventory", { p_profile_id: profileId });

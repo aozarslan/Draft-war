@@ -194,6 +194,55 @@ export async function claimDaily(): Promise<DailyClaim> {
   return data as DailyClaim;
 }
 
+export interface ShopItem {
+  itemId: string;
+  kind: string;
+  name: string;
+  rarity: string;
+  /** What it costs right now, discount already applied. */
+  price: number;
+  listPrice: number;
+  featured: boolean;
+}
+
+export interface ShopPayload {
+  ok: true;
+  rotation: { endsAt: string; discount: number; itemIds: string[] } | null;
+  items: ShopItem[];
+  owned: string[];
+  balance: number;
+}
+
+export interface PurchaseResult {
+  ok: true;
+  itemId: string;
+  kind: string;
+  name: string;
+  paid: number;
+  balance: number;
+}
+
+export async function fetchShop(): Promise<ShopPayload | null> {
+  const res = await fetch("/api/shop", { headers: accountHeaders(), cache: "no-store" });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as ShopPayload);
+}
+
+/** Buys an item. The price is the server's, not the one on the card. */
+export async function buyItem(itemId: string): Promise<PurchaseResult> {
+  const res = await fetch("/api/shop", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify({ itemId }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.message ?? "The purchase did not go through.");
+  }
+  return data as PurchaseResult;
+}
+
 export interface OwnedItem {
   itemId: string;
   kind: string;

@@ -325,11 +325,16 @@ function Inventory({ onEquip }: { onEquip: () => void }) {
         })}
       </div>
 
-      <p className="px-4 pb-4 text-[10px] leading-relaxed text-white/25">
-        Cosmetics only. Nothing in here changes a stat, a credit or a bid — the
-        richest locker walks into an auction with the same 50 credits as an
-        empty one.
-      </p>
+      <div className="flex items-center gap-2 px-4 pb-4">
+        <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-white/25">
+          Cosmetics only. Nothing in here changes a stat, a credit or a bid — the
+          richest locker walks into an auction with the same 50 credits as an
+          empty one.
+        </p>
+        <Link href="/shop" className="btn !min-h-8 shrink-0 !px-3 !text-[10px]">
+          🛒 Shop
+        </Link>
+      </div>
     </Panel>
   );
 }

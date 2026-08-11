@@ -113,8 +113,10 @@ export function ProfileBadge({ compact = false }: { compact?: boolean }) {
           {level.level}
         </span>
       </span>
+      {/* On a phone the header is already carrying the nav, so the badge
+          shrinks to the two things worth knowing at a glance. */}
       {!compact ? (
-        <span className="min-w-0">
+        <span className="hidden min-w-0 sm:block">
           <span className="block max-w-[110px] truncate text-xs font-black leading-tight">
             {data.profile.username}
           </span>
