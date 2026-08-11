@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  COIN_AWARDS,
   RANK_TIERS,
   XP_AWARDS,
   applyRankDelta,
   levelFromXp,
   rankDelta,
   rankFromPoints,
+  coinsForMatch,
+  formatCoins,
+  totalCoins,
   totalXp,
   xpForLevel,
   xpForMatch,
@@ -131,5 +135,50 @@ describe("rank", () => {
       expect(tier).toBeGreaterThanOrEqual(lastTier);
       lastTier = tier;
     }
+  });
+});
+
+describe("coin awards", () => {
+  it("pays the flat rate for finishing a match", () => {
+    const lines = coinsForMatch({ rank: 4, playerCount: 5, isMvp: false, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(lines)).toBe(COIN_AWARDS.MATCH_COMPLETED);
+  });
+
+  it("stacks the win and MVP bonuses", () => {
+    const lines = coinsForMatch({ rank: 1, playerCount: 5, isMvp: true, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(lines)).toBe(
+      COIN_AWARDS.MATCH_COMPLETED + COIN_AWARDS.WIN + COIN_AWARDS.MVP,
+    );
+  });
+
+  it("never pays both the win and the top-three bonus", () => {
+    const winner = coinsForMatch({ rank: 1, playerCount: 5, isMvp: false, charactersDrafted: 5, ranked: true });
+    expect(winner.some((l) => l.reason === "Top three")).toBe(false);
+    const third = coinsForMatch({ rank: 3, playerCount: 5, isMvp: false, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(third)).toBe(COIN_AWARDS.MATCH_COMPLETED + COIN_AWARDS.TOP_THREE);
+  });
+
+  it("pays casual matches too — coins are for playing, rank is for winning", () => {
+    const casual = coinsForMatch({ rank: 1, playerCount: 3, isMvp: false, charactersDrafted: 5, ranked: false });
+    const ranked = coinsForMatch({ rank: 1, playerCount: 3, isMvp: false, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(casual)).toBe(totalCoins(ranked));
+  });
+
+  it("does not scale with how much a player spent in the auction", () => {
+    // Coins and credits must stay unconnected in both directions.
+    const few = coinsForMatch({ rank: 2, playerCount: 5, isMvp: false, charactersDrafted: 1, ranked: true });
+    const many = coinsForMatch({ rank: 2, playerCount: 5, isMvp: false, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(few)).toBe(totalCoins(many));
+  });
+
+  it("keeps a match worth less than a shop cosmetic will be", () => {
+    const best = coinsForMatch({ rank: 1, playerCount: 5, isMvp: true, charactersDrafted: 5, ranked: true });
+    expect(totalCoins(best)).toBeLessThan(300);
+  });
+
+  it("formats a balance for humans", () => {
+    expect(formatCoins(0)).toBe("0");
+    expect(formatCoins(12400)).toBe("12,400");
+    expect(formatCoins(-5)).toBe("0");
   });
 });

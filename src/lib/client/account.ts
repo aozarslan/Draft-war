@@ -104,6 +104,7 @@ export interface MatchHistoryEntry {
   mvpCharacter: string | null;
   creditsSpent: number;
   xp: number;
+  coins: number;
   rankDelta: number;
   ranked: boolean;
   roster: { characterId: string; price: number }[];
@@ -139,6 +140,56 @@ export async function createProfile(
   };
   setAccount(session);
   return session;
+}
+
+export interface CoinEntry {
+  id: string;
+  amount: number;
+  balance: number;
+  kind: string;
+  reference: string | null;
+  detail: Record<string, unknown>;
+  at: string;
+}
+
+export interface CoinLedger {
+  ok: true;
+  balance: number;
+  dailyClaimed: boolean;
+  entries: CoinEntry[];
+}
+
+export interface DailyClaim {
+  ok: true;
+  claimed: boolean;
+  amount?: number;
+  streak: number;
+  balance: number;
+  nextAt: string;
+}
+
+export async function fetchCoins(): Promise<CoinLedger | null> {
+  if (!getAccount()) return null;
+  const res = await fetch("/api/profile/coins", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as CoinLedger);
+}
+
+/** Asks for today's login coins. The server decides whether there are any. */
+export async function claimDaily(): Promise<DailyClaim> {
+  const res = await fetch("/api/profile/coins", {
+    method: "POST",
+    headers: accountHeaders(),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.message ?? "Could not claim today's reward.");
+  }
+  return data as DailyClaim;
 }
 
 export async function fetchProfile(): Promise<ProfilePayload | null> {

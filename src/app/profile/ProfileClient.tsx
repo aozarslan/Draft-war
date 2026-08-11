@@ -3,15 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  claimDaily,
   clearAccount,
   createProfile,
+  fetchCoins,
   fetchProfile,
   getAccount,
+  type CoinLedger,
   type ProfilePayload,
 } from "@/lib/client/account";
-import { levelFromXp, rankFromPoints, RANK_TIERS } from "@/lib/game/progression";
+import { formatCoins, levelFromXp, rankFromPoints, RANK_TIERS } from "@/lib/game/progression";
 import { getCategory } from "@/lib/game/categories";
-import { LevelBar } from "@/components/ProfileBadge";
+import { CoinPill, LevelBar } from "@/components/ProfileBadge";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
 import { play } from "@/lib/client/sound";
 
@@ -68,6 +71,14 @@ export function ProfileClient() {
           <LevelBar xp={data.profile.xp} />
         </div>
       </Panel>
+
+      {/* ---- Wallet ---- */}
+      <Wallet
+        coins={data.profile.coins}
+        onChange={(balance) =>
+          setData({ ...data, profile: { ...data.profile, coins: balance } })
+        }
+      />
 
       {/* ---- Season ---- */}
       {data.season ? (
@@ -161,6 +172,11 @@ export function ProfileClient() {
                   </span>
                   <span className="shrink-0 text-right">
                     <span className="block text-[11px] font-black text-cyan-300">+{m.xp} XP</span>
+                    {m.coins > 0 ? (
+                      <span className="block text-[10px] font-black text-amber-200">
+                        +{m.coins} 🪙
+                      </span>
+                    ) : null}
                     {m.ranked ? (
                       <span
                         className={`block text-[10px] font-black ${
@@ -200,6 +216,106 @@ export function ProfileClient() {
         supported yet.
       </p>
     </div>
+  );
+}
+
+const COIN_KIND_LABEL: Record<string, string> = {
+  MATCH: "Match reward",
+  DAILY: "Daily login",
+  ACHIEVEMENT: "Achievement",
+  SEASON: "Season reward",
+  PURCHASE: "Shop purchase",
+  GRANT: "Granted",
+};
+
+/**
+ * Coins, and where they came from.
+ *
+ * The ledger is shown rather than just a balance because that is what the
+ * server actually stores — the number in `profiles.coins` is a cache of these
+ * rows, and a player who can read the receipts never has to take the total on
+ * trust. Claiming is a request, not an instruction: the amount and the "have
+ * you already had today's?" decision both live in the database.
+ */
+function Wallet({ coins, onChange }: { coins: number; onChange: (balance: number) => void }) {
+  const [ledger, setLedger] = useState<CoinLedger | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchCoins().then(setLedger);
+  }, []);
+
+  async function claim() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await claimDaily();
+      onChange(result.balance);
+      setLedger(await fetchCoins());
+      setNote(
+        result.claimed
+          ? `+${result.amount} coins · ${result.streak} day streak`
+          : "You already claimed today. Come back tomorrow.",
+      );
+      if (result.claimed) play("sold");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not claim today's reward.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel accent="#fbbf24">
+      <SectionTitle right={<CoinPill coins={coins} />}>Wallet</SectionTitle>
+
+      <div className="px-4 pb-4">
+        <button
+          className="btn btn-primary w-full"
+          disabled={busy || ledger?.dailyClaimed}
+          onClick={claim}
+        >
+          {ledger?.dailyClaimed
+            ? "Daily reward claimed ✓"
+            : busy
+              ? "Claiming…"
+              : "🎁 Claim 100 daily coins"}
+        </button>
+        {note ? <p className="mt-2 text-center text-[11px] text-white/50">{note}</p> : null}
+
+        {ledger && ledger.entries.length > 0 ? (
+          <ul className="mt-3 space-y-1">
+            {ledger.entries.slice(0, 8).map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center gap-2 rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px]"
+              >
+                <span className="min-w-0 flex-1 truncate text-white/55">
+                  {COIN_KIND_LABEL[t.kind] ?? t.kind}
+                </span>
+                <span className="tabular-nums text-white/25">
+                  {new Date(t.at).toLocaleDateString()}
+                </span>
+                <span
+                  className={`w-16 shrink-0 text-right font-black tabular-nums ${
+                    t.amount >= 0 ? "text-amber-200" : "text-rose-300"
+                  }`}
+                >
+                  {t.amount >= 0 ? "+" : "−"}
+                  {formatCoins(Math.abs(t.amount))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-center text-[11px] text-white/30">
+            Coins are earned by playing. They buy cosmetics only — never an
+            advantage in a draft.
+          </p>
+        )}
+      </div>
+    </Panel>
   );
 }
 

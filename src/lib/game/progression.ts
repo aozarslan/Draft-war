@@ -113,6 +113,52 @@ export function totalXp(lines: XpBreakdown[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Coins
+// ---------------------------------------------------------------------------
+
+/**
+ * Coins are the persistent currency: earned by playing, spent in the shop on
+ * cosmetics. They are deliberately NOT auction credits — credits are minted at
+ * the start of a match and destroyed at the end, and nothing converts between
+ * the two. A rich player must never arrive at an auction with an advantage.
+ *
+ * The rates are tuned so an ordinary match pays 50-225 and nothing in the shop
+ * is a single evening's work.
+ */
+export const COIN_AWARDS = {
+  MATCH_COMPLETED: 50,
+  WIN: 100,
+  TOP_THREE: 25,
+  MVP: 75,
+  DAILY_LOGIN: 100,
+} as const;
+
+export interface CoinLine {
+  reason: string;
+  amount: number;
+}
+
+/** Itemised for the same reason XP is: the reward screen shows the receipt. */
+export function coinsForMatch(outcome: MatchOutcome): CoinLine[] {
+  const lines: CoinLine[] = [
+    { reason: "Match completed", amount: COIN_AWARDS.MATCH_COMPLETED },
+  ];
+  if (outcome.rank === 1) lines.push({ reason: "Victory", amount: COIN_AWARDS.WIN });
+  else if (outcome.rank <= 3) lines.push({ reason: "Top three", amount: COIN_AWARDS.TOP_THREE });
+  if (outcome.isMvp) lines.push({ reason: "MVP", amount: COIN_AWARDS.MVP });
+  return lines;
+}
+
+export function totalCoins(lines: CoinLine[]): number {
+  return lines.reduce((sum, l) => sum + l.amount, 0);
+}
+
+/** Thousands separator for a balance, so 12400 reads as 12,400. */
+export function formatCoins(coins: number): string {
+  return Math.max(0, Math.floor(coins)).toLocaleString("en-US");
+}
+
+// ---------------------------------------------------------------------------
 // Rank
 // ---------------------------------------------------------------------------
 

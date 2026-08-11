@@ -8,7 +8,7 @@ import {
   type MatchHistoryEntry,
   type ProfilePayload,
 } from "@/lib/client/account";
-import { levelFromXp, rankFromPoints } from "@/lib/game/progression";
+import { formatCoins, levelFromXp, rankFromPoints } from "@/lib/game/progression";
 import { LevelBar } from "./ProfileBadge";
 import { Panel, SectionTitle } from "./ui";
 import { play } from "@/lib/client/sound";
@@ -96,13 +96,17 @@ export function MatchRewards({ gameId }: { gameId: string | null }) {
         You earned
       </SectionTitle>
 
-      <div className="grid grid-cols-2 gap-2 px-4 pb-3">
-        <div className="animate-[pop_0.4s] rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-3 text-center">
+      <div className="grid grid-cols-3 gap-2 px-4 pb-3">
+        <div className="animate-[pop_0.4s] rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-2 py-3 text-center">
           <div className="text-2xl font-black tabular-nums text-cyan-300">+{entry.xp}</div>
           <div className="text-[10px] font-bold uppercase tracking-wider text-white/45">XP</div>
         </div>
+        <div className="animate-[pop_0.4s_0.05s_both] rounded-xl border border-amber-300/30 bg-amber-300/10 px-2 py-3 text-center">
+          <div className="text-2xl font-black tabular-nums text-amber-200">+{entry.coins}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-white/45">🪙 Coins</div>
+        </div>
         <div
-          className="animate-[pop_0.4s_0.1s_both] rounded-xl border px-3 py-3 text-center"
+          className="animate-[pop_0.4s_0.1s_both] rounded-xl border px-2 py-3 text-center"
           style={{
             borderColor: entry.ranked ? `${rank.tier.colour}55` : "rgba(255,255,255,0.1)",
             background: entry.ranked ? `${rank.tier.colour}14` : "transparent",
@@ -128,6 +132,9 @@ export function MatchRewards({ gameId }: { gameId: string | null }) {
 
       <div className="px-4 pb-4">
         <LevelBar xp={data.profile.xp} />
+        <p className="mt-2 text-[11px] font-bold text-amber-200/80">
+          🪙 {formatCoins(data.profile.coins)} coins in your wallet
+        </p>
         {entry.ranked ? (
           <p className="mt-2 text-[11px] font-bold" style={{ color: rank.tier.colour }}>
             {rank.tier.icon} {rank.label} · {rank.points} RP

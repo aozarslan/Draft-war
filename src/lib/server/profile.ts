@@ -3,11 +3,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { EngineError, rpc, rpcOrThrow } from "@/lib/server/engine";
 import { errorResponse } from "@/lib/server/session";
 import {
+  coinsForMatch,
   levelFromXp,
   rankDelta,
   rankFromPoints,
+  totalCoins,
   totalXp,
   xpForMatch,
+  type CoinLine,
   type XpBreakdown,
 } from "@/lib/game/progression";
 import type { BattleResult } from "@/lib/game/types";
@@ -73,6 +76,9 @@ export interface RewardLine {
   placement: number;
   xp: number;
   breakdown: XpBreakdown[];
+  coins: number;
+  coinBreakdown: CoinLine[];
+  coinBalance: number;
   rankDelta: number;
   levelBefore: number;
   levelAfter: number;
@@ -134,6 +140,14 @@ export async function awardMatchRewards(
       ranked,
     });
     const xp = totalXp(breakdown);
+    const coinLines = coinsForMatch({
+      rank: team.rank,
+      playerCount,
+      isMvp,
+      charactersDrafted: mine.length,
+      ranked,
+    });
+    const coins = totalCoins(coinLines);
     const delta = ranked ? rankDelta(team.rank, playerCount) : 0;
 
     const summary = {
@@ -162,8 +176,24 @@ export async function awardMatchRewards(
       p_summary: summary,
     });
 
+    // Coins ride on their own ledger, so they are paid after the match row
+    // exists and are idempotent independently of the XP award.
+    const paid = await rpcOrThrow("dw_award_match_coins", {
+      p_game_id: gameId,
+      p_profile_id: seat.profile_id,
+      p_coins: coins,
+      p_detail: {
+        roomCode,
+        placement: team.rank,
+        playerCount,
+        isMvp,
+        lines: coinLines,
+      },
+    });
+
     // A repeat call returns early; report the line without pretending it paid.
     const alreadyAwarded = Boolean(awarded.alreadyAwarded);
+    const coinsPaid = Number(paid.amount ?? 0);
     const totalAfter = Number(awarded.totalXp ?? 0);
     const levelAfter = Number(awarded.level ?? 1);
     const levelBefore = levelFromXp(Math.max(0, totalAfter - xp)).level;
@@ -176,6 +206,9 @@ export async function awardMatchRewards(
       placement: team.rank,
       xp: alreadyAwarded ? 0 : xp,
       breakdown: alreadyAwarded ? [] : breakdown,
+      coins: coinsPaid,
+      coinBreakdown: coinsPaid > 0 ? coinLines : [],
+      coinBalance: Number(paid.balance ?? 0),
       rankDelta: alreadyAwarded ? 0 : delta,
       levelBefore,
       levelAfter,
@@ -186,6 +219,19 @@ export async function awardMatchRewards(
   }
 
   return lines;
+}
+
+/** Wallet balance plus the recent ledger — the receipt for every coin held. */
+export async function getCoinLedger(profileId: string, limit = 25) {
+  const data = await rpc("dw_coin_ledger", { p_profile_id: profileId, p_limit: limit });
+  if (data.ok === false) {
+    throw new EngineError(
+      String(data.code ?? "PROFILE_NOT_FOUND"),
+      String(data.message ?? "Profile not found."),
+      404,
+    );
+  }
+  return data;
 }
 
 export async function getProfile(profileId: string) {

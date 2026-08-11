@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchProfile, getAccount, type ProfilePayload } from "@/lib/client/account";
-import { levelFromXp, rankFromPoints } from "@/lib/game/progression";
+import { formatCoins, levelFromXp, rankFromPoints } from "@/lib/game/progression";
 
 /**
  * The persistent player, shown in the site header.
@@ -71,7 +71,26 @@ export function ProfileBadge({ compact = false }: { compact?: boolean }) {
           </span>
         </span>
       ) : null}
+      <CoinPill coins={data.profile.coins} />
     </Link>
+  );
+}
+
+/** The wallet, wherever it needs to appear. */
+export function CoinPill({
+  coins,
+  className = "",
+}: {
+  coins: number;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1 rounded-lg border border-amber-300/25 bg-amber-300/10 px-1.5 py-0.5 text-[11px] font-black tabular-nums text-amber-200 ${className}`}
+      title="Coins"
+    >
+      🪙 {formatCoins(coins)}
+    </span>
   );
 }
 

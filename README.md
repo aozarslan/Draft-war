@@ -230,12 +230,35 @@ through the server.
 | `game_events` | Append-only game log (sold, unsold, battlefield, …) |
 | `battle_results` | Stored standings, MVP and per-character performance |
 | `leaderboard` | View over the season columns on `players` |
+| `profiles` | The persistent player: username, avatar, level, XP, coins |
+| `profile_secrets` | Session token per profile. No anon policy |
+| `profile_stats` | Lifetime record, untouched by a season reset |
+| `seasons` / `season_players` | 45-day seasons and their rank points |
+| `xp_transactions` | Immutable XP ledger, unique per (profile, match, kind) |
+| `coin_transactions` | Immutable coin ledger, unique per (profile, kind, reference) |
+| `match_history` | One row per profile per finished match |
+
+None of the progression tables has an anon policy, so the browser cannot read
+or write coins, XP or rank at all — every number the UI shows was fetched by
+our own server on the service role. `profiles.coins` is a cache of
+`coin_transactions`; both are written inside one function under a row lock, so
+they cannot drift, and a repeated payout is refused by the unique index rather
+than merely being unlikely.
+
+**Coins are not credits.** Auction credits are minted at the start of a match,
+spent inside it and destroyed at the end. Coins persist and buy cosmetics.
+Nothing converts between them in either direction, which is what keeps the shop
+off the battlefield.
 
 Key functions: `dw_create_room`, `dw_join_room`, `dw_set_ready`,
 `dw_heartbeat` (also migrates a dead host), `dw_start_game`, `dw_place_bid`,
 `dw_pass_auction`, `dw_resolve_auction`, `dw_open_next_auction`,
 `dw_advance_phase`, `dw_vote_map`, `dw_lock_battlefield`, `dw_store_battle`,
 `dw_return_to_lobby`, `dw_tick`, `dw_snapshot`, `dw_send_chat`.
+
+Progression functions: `dw_create_profile`, `dw_link_player_profile`,
+`dw_award_match`, `dw_profile`, `dw_leaderboard`, `dw_award_coins`,
+`dw_spend_coins`, `dw_award_match_coins`, `dw_claim_daily`, `dw_coin_ledger`.
 
 ---
 
@@ -264,6 +287,11 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
    Wikipedia data
 5. `supabase/migrations/0005_v2_1_five_players.sql` — five-player rooms, the
    host's room-size control and the V2.1 defaults
+6. `supabase/migrations/0006_reserve_pool.sql` — the reserve pool that makes
+   PASS a real move and stops a draft ending with an unfilled roster
+7. `supabase/migrations/0007_profiles_progression.sql` — profiles, XP, levels,
+   rank points, seasons and match history
+8. `supabase/migrations/0008_coins.sql` — the coin economy and its ledger
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep
