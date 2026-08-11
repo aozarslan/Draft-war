@@ -426,3 +426,31 @@ export function basePriceForPower(power: number): number {
   // 60 -> 4 credits, 100 -> 12 credits.
   return Math.max(2, Math.min(14, Math.round((power - 52) / 4)));
 }
+
+/**
+ * Decides a category vote.
+ *
+ * Pure and testable on purpose: this used to live inline in the server engine
+ * where a ballot that had been silently trimmed to four entries made a
+ * minority win, and nothing caught it until a real game did.
+ *
+ * `votes` maps player id to category id. Anything not on the ballot is
+ * ignored, the highest count wins, and a tie is broken by the caller's RNG so
+ * the result stays reproducible from the room's seed.
+ */
+export function resolveCategoryVote(
+  ballot: string[],
+  votes: Record<string, string>,
+  pickTiebreak: (options: string[]) => string,
+): string {
+  if (ballot.length === 0) return CATEGORIES[0].id;
+
+  const tally = new Map<string, number>();
+  for (const id of Object.values(votes)) {
+    if (ballot.includes(id)) tally.set(id, (tally.get(id) ?? 0) + 1);
+  }
+
+  const best = Math.max(0, ...ballot.map((id) => tally.get(id) ?? 0));
+  const leaders = ballot.filter((id) => (tally.get(id) ?? 0) === best);
+  return leaders.length === 1 ? leaders[0] : pickTiebreak(leaders);
+}

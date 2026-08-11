@@ -4,7 +4,7 @@ import { computeAxisBands, simulateBattle } from "@/lib/game/battle";
 import { buildAuctionQueue, charactersPerPlayer } from "@/lib/game/auction";
 import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
-import { CATEGORIES, LEGACY_CATEGORY_ID } from "@/lib/game/categories";
+import { CATEGORIES, LEGACY_CATEGORY_ID, resolveCategoryVote } from "@/lib/game/categories";
 import type { BattleResult, Character, RoomConfig } from "@/lib/game/types";
 
 /**
@@ -283,12 +283,33 @@ export async function categoryCounts(): Promise<Record<string, number>> {
 
 const ALL_CATEGORY_IDS = CATEGORIES.map((c) => c.id);
 
+/** Most categories a single game may mix. */
+const MAX_MIXED_CATEGORIES = 4;
+
+/**
+ * Keeps only real category ids, in order, without duplicates.
+ *
+ * Deliberately does NOT cap the length. An earlier version capped at four here
+ * and the cap silently leaked onto the vote ballot: the ballot was trimmed to
+ * the first four categories, so votes for anything after them were discarded
+ * and a minority could win. Capping is a property of a *selection*, not of a
+ * list of valid ids.
+ */
 function sanitizeCategories(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
-  return ids
-    .filter((id): id is string => typeof id === "string")
-    .filter((id) => ALL_CATEGORY_IDS.includes(id))
-    .slice(0, 4);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== "string" || !ALL_CATEGORY_IDS.includes(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/** A selection of categories to actually play, capped for crossovers. */
+function limitSelection(ids: string[]): string[] {
+  return ids.slice(0, MAX_MIXED_CATEGORIES);
 }
 
 /**
@@ -323,7 +344,7 @@ export async function lockCategory(
   const snap = await getSnapshot(roomId);
   if (snap.room.phase !== "CATEGORY") return [];
 
-  let chosen = sanitizeCategories(snap.room.categoryIds);
+  let chosen = limitSelection(sanitizeCategories(snap.room.categoryIds));
 
   if (chosen.length === 0) {
     const candidates = sanitizeCategories(snap.room.categoryCandidates);
@@ -331,17 +352,13 @@ export async function lockCategory(
     const rng = createRng(`category:${roomId}:${snap.room.stateVersion}`);
 
     if (explicit && explicit.length) {
-      chosen = sanitizeCategories(explicit);
+      chosen = limitSelection(sanitizeCategories(explicit));
     } else if (snap.room.categoryMode === "RANDOM") {
       chosen = [rng.pick(ballot)];
     } else if (snap.room.categoryMode === "VOTE") {
-      const tally = new Map<string, number>();
-      for (const id of Object.values(snap.categoryVotes)) {
-        if (ballot.includes(id)) tally.set(id, (tally.get(id) ?? 0) + 1);
-      }
-      const best = Math.max(0, ...ballot.map((id) => tally.get(id) ?? 0));
-      const leaders = ballot.filter((id) => (tally.get(id) ?? 0) === best);
-      chosen = [leaders.length === 1 ? leaders[0] : rng.pick(leaders)];
+      chosen = [
+        resolveCategoryVote(ballot, snap.categoryVotes, (options) => rng.pick(options)),
+      ];
     } else {
       // HOST mode with no pick — fall back rather than stall the room.
       chosen = [rng.pick(ballot)];
@@ -351,7 +368,7 @@ export async function lockCategory(
       p_room_id: roomId,
       p_category_ids: chosen,
     });
-    const confirmed = sanitizeCategories(locked.categoryIds);
+    const confirmed = limitSelection(sanitizeCategories(locked.categoryIds));
     if (confirmed.length) chosen = confirmed;
   }
 
@@ -369,7 +386,7 @@ export async function startFromLockedCategory(
 ): Promise<void> {
   const snap = await getSnapshot(roomId);
   if (snap.room.phase !== "CATEGORY") return;
-  const chosen = sanitizeCategories(snap.room.categoryIds);
+  const chosen = limitSelection(sanitizeCategories(snap.room.categoryIds));
   if (chosen.length === 0) return;
   await startGame(roomId, playerId, chosen);
 }

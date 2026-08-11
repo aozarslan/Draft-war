@@ -81,7 +81,7 @@ export async function POST(
       case "PICK_CATEGORY": {
         if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
         const valid = CATEGORIES.map((c) => c.id);
-        const ids = (action.categoryIds ?? [])
+        const ids = [...new Set(action.categoryIds ?? [])]
           .filter((id) => valid.includes(id))
           .slice(0, 4);
         if (ids.length === 0) {
