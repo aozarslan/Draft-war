@@ -4,6 +4,55 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchProfile, getAccount, type ProfilePayload } from "@/lib/client/account";
 import { formatCoins, levelFromXp, rankFromPoints } from "@/lib/game/progression";
+import { avatarEmoji, frameStyle, titleText } from "@/lib/game/items";
+
+/**
+ * A player as they dress themselves: their avatar inside their frame.
+ *
+ * Both values come from the server — a frame is only stored after the database
+ * has confirmed the wearer owns it — so this renders an entitlement, not a
+ * preference the browser could invent.
+ */
+export function Avatar({
+  avatar,
+  frame,
+  size = 32,
+  className = "",
+}: {
+  avatar: string | null | undefined;
+  frame?: string | null;
+  size?: number;
+  className?: string;
+}) {
+  const ring = frameStyle(frame);
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-xl bg-white/5 ${className}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.52),
+        borderWidth: ring.style === "double" ? 2 : 1,
+        borderStyle: "solid",
+        borderColor: ring.colour === "#ffffff" ? "rgba(255,255,255,0.12)" : ring.colour,
+        boxShadow: ring.glow > 0 ? `0 0 ${ring.glow}px ${ring.colour}66` : undefined,
+      }}
+    >
+      {avatarEmoji(avatar)}
+    </span>
+  );
+}
+
+/** The equipped title, or nothing when a player has not chosen one. */
+export function TitleTag({ title, className = "" }: { title: string | null; className?: string }) {
+  const t = titleText(title);
+  if (!t) return null;
+  return (
+    <span className={`text-[11px] font-black ${className}`} style={{ color: t.colour }}>
+      {t.text}
+    </span>
+  );
+}
 
 /**
  * The persistent player, shown in the site header.
@@ -55,11 +104,14 @@ export function ProfileBadge({ compact = false }: { compact?: boolean }) {
       href="/profile"
       className="glass flex shrink-0 items-center gap-2 rounded-xl px-2.5 py-1.5 transition hover:brightness-125"
     >
-      <span
-        className="grid h-7 w-7 place-items-center rounded-lg text-xs font-black"
-        style={{ background: rank.tier.colour, color: "#05060c" }}
-      >
-        {level.level}
+      <span className="relative">
+        <Avatar avatar={data.profile.avatar} frame={data.profile.frame} size={30} />
+        <span
+          className="absolute -bottom-1 -right-1 grid h-4 min-w-4 place-items-center rounded-md px-0.5 text-[9px] font-black leading-none"
+          style={{ background: rank.tier.colour, color: "#05060c" }}
+        >
+          {level.level}
+        </span>
       </span>
       {!compact ? (
         <span className="min-w-0">

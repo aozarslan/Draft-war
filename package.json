@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:sql": "tsx scripts/generate-character-sql.ts",
+    "seed:items": "tsx scripts/generate-item-sql.ts",
     "wiki:enrich": "tsx scripts/enrich-characters.ts",
     "balance": "tsx scripts/balance-report.ts"
   },

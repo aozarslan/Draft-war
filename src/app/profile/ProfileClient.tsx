@@ -6,19 +6,31 @@ import {
   claimDaily,
   clearAccount,
   createProfile,
+  equipItem,
   fetchCoins,
+  fetchInventory,
   fetchProfile,
   getAccount,
   type CoinLedger,
+  type InventoryPayload,
   type ProfilePayload,
 } from "@/lib/client/account";
 import { formatCoins, levelFromXp, rankFromPoints, RANK_TIERS } from "@/lib/game/progression";
+import {
+  bannerGradient,
+  getItem,
+  itemsOfKind,
+  ITEM_KINDS,
+  RARITY_STYLE,
+  type ItemKind,
+} from "@/lib/game/items";
 import { getCategory } from "@/lib/game/categories";
-import { CoinPill, LevelBar } from "@/components/ProfileBadge";
+import { Avatar, CoinPill, LevelBar, TitleTag } from "@/components/ProfileBadge";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
 import { play } from "@/lib/client/sound";
 
-const AVATARS = ["🎯", "🔥", "💀", "👑", "🦊", "🐺", "⚡", "🎭", "🛡", "🗡"];
+// Sign-up only offers the free avatars; everything else is earned or bought.
+const STARTER_AVATARS = itemsOfKind("AVATAR").filter((i) => i.source === "DEFAULT");
 const PLACE = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"];
 
 export function ProfileClient() {
@@ -47,21 +59,12 @@ export function ProfileClient() {
       <Panel className="overflow-hidden">
         <div
           className="flex items-center gap-4 px-5 py-6"
-          style={{
-            background: `radial-gradient(600px 200px at 20% 0%, ${rank.tier.colour}33, transparent)`,
-          }}
+          style={{ background: bannerGradient(data.profile.banner) }}
         >
-          <span
-            className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl text-3xl"
-            style={{ background: `${rank.tier.colour}22`, border: `1px solid ${rank.tier.colour}66` }}
-          >
-            {data.profile.avatar.length <= 3 ? data.profile.avatar : "🎯"}
-          </span>
+          <Avatar avatar={data.profile.avatar} frame={data.profile.frame} size={64} />
           <div className="min-w-0 flex-1">
             <h1 className="headline truncate text-3xl">{data.profile.username}</h1>
-            {data.profile.title ? (
-              <p className="text-xs font-bold text-cyan-300">{data.profile.title}</p>
-            ) : null}
+            <TitleTag title={data.profile.title} className="block" />
             <p className="text-xs font-semibold" style={{ color: rank.tier.colour }}>
               {rank.tier.icon} {rank.label} · {rank.points} RP
             </p>
@@ -71,6 +74,9 @@ export function ProfileClient() {
           <LevelBar xp={data.profile.xp} />
         </div>
       </Panel>
+
+      {/* ---- Inventory ---- */}
+      <Inventory onEquip={() => void fetchProfile().then((p) => p && setData(p))} />
 
       {/* ---- Wallet ---- */}
       <Wallet
@@ -219,6 +225,144 @@ export function ProfileClient() {
   );
 }
 
+/**
+ * The locker room.
+ *
+ * Locked items are shown rather than hidden — knowing what exists is half of
+ * wanting it — but the equip button only appears on something owned, and the
+ * server refuses the request anyway if the browser is talked into sending it.
+ */
+function Inventory({ onEquip }: { onEquip: () => void }) {
+  const [inv, setInv] = useState<InventoryPayload | null>(null);
+  const [kind, setKind] = useState<ItemKind>("AVATAR");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchInventory().then(setInv);
+  }, []);
+
+  const owned = new Set((inv?.owned ?? []).map((o) => o.itemId));
+  const items = itemsOfKind(kind);
+  const ownedCount = items.filter((i) => owned.has(i.id)).length;
+
+  async function equip(itemId: string) {
+    setBusy(itemId);
+    setError(null);
+    try {
+      await equipItem(itemId);
+      setInv(await fetchInventory());
+      onEquip();
+      play("bid");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not equip that.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Panel accent="#a78bfa">
+      <SectionTitle
+        right={
+          <span className="text-[10px] text-white/35">
+            {ownedCount} / {items.length} owned
+          </span>
+        }
+      >
+        Locker
+      </SectionTitle>
+
+      <div className="no-scrollbar flex gap-1 overflow-x-auto px-4 pb-3">
+        {ITEM_KINDS.map((k) => (
+          <button
+            key={k.id}
+            onClick={() => setKind(k.id)}
+            aria-pressed={kind === k.id}
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition ${
+              kind === k.id ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70"
+            }`}
+          >
+            {k.icon} {k.label}
+          </button>
+        ))}
+      </div>
+
+      {error ? <p className="px-4 pb-2 text-[11px] text-rose-400">{error}</p> : null}
+
+      <div className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-3">
+        {items.map((item) => {
+          const isOwned = owned.has(item.id);
+          const isEquipped = inv?.equipped?.[item.kind] === item.id;
+          const rarity = RARITY_STYLE[item.rarity];
+          return (
+            <button
+              key={item.id}
+              disabled={!isOwned || isEquipped || busy === item.id}
+              onClick={() => equip(item.id)}
+              className="flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition enabled:hover:brightness-125 enabled:active:scale-[0.98]"
+              style={{
+                borderColor: isEquipped ? rarity.colour : `${rarity.colour}33`,
+                background: isEquipped ? `${rarity.colour}18` : "transparent",
+                opacity: isOwned ? 1 : 0.4,
+              }}
+            >
+              <ItemSwatch id={item.id} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-black">{item.name}</span>
+                <span className="block text-[9px] font-bold" style={{ color: rarity.colour }}>
+                  {isEquipped
+                    ? "Equipped"
+                    : isOwned
+                      ? rarity.label
+                      : item.price > 0
+                        ? `🪙 ${item.price}`
+                        : (item.requirement ?? "Locked")}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="px-4 pb-4 text-[10px] leading-relaxed text-white/25">
+        Cosmetics only. Nothing in here changes a stat, a credit or a bid — the
+        richest locker walks into an auction with the same 50 credits as an
+        empty one.
+      </p>
+    </Panel>
+  );
+}
+
+/** A one-glance preview of whichever kind of item this is. */
+function ItemSwatch({ id }: { id: string }) {
+  const item = getItem(id);
+  if (!item) return null;
+
+  if (item.kind === "AVATAR") {
+    return <Avatar avatar={item.id} size={30} />;
+  }
+  if (item.kind === "FRAME") {
+    return <Avatar avatar="avatar-target" frame={item.id} size={30} />;
+  }
+  if (item.kind === "BANNER") {
+    return (
+      <span
+        className="h-[30px] w-[30px] shrink-0 rounded-xl border border-white/10"
+        style={{ background: bannerGradient(item.id) }}
+      />
+    );
+  }
+  return (
+    <span
+      className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-xl border border-white/10 text-sm"
+      style={{ color: String(item.payload.colour) }}
+    >
+      🏷
+    </span>
+  );
+}
+
 const COIN_KIND_LABEL: Record<string, string> = {
   MATCH: "Match reward",
   DAILY: "Daily login",
@@ -345,7 +489,7 @@ function RankLadder({ points }: { points: number }) {
 
 function ClaimProfile({ onDone }: { onDone: (p: ProfilePayload) => void }) {
   const [username, setUsername] = useState("");
-  const [avatar, setAvatar] = useState(AVATARS[0]);
+  const [avatar, setAvatar] = useState(STARTER_AVATARS[0].id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -395,19 +539,20 @@ function ClaimProfile({ onDone }: { onDone: (p: ProfilePayload) => void }) {
       <div className="space-y-2">
         <span className="text-xs font-bold uppercase tracking-widest text-white/45">Avatar</span>
         <div className="grid grid-cols-5 gap-2">
-          {AVATARS.map((a) => (
+          {STARTER_AVATARS.map((a) => (
             <button
-              key={a}
+              key={a.id}
               type="button"
-              onClick={() => setAvatar(a)}
-              aria-pressed={avatar === a}
+              onClick={() => setAvatar(a.id)}
+              aria-pressed={avatar === a.id}
+              title={a.name}
               className="grid aspect-square place-items-center rounded-xl border text-2xl transition active:scale-95"
               style={{
-                borderColor: avatar === a ? "#22d3ee" : "rgba(255,255,255,0.1)",
-                background: avatar === a ? "rgba(34,211,238,0.12)" : "transparent",
+                borderColor: avatar === a.id ? "#22d3ee" : "rgba(255,255,255,0.1)",
+                background: avatar === a.id ? "rgba(34,211,238,0.12)" : "transparent",
               }}
             >
-              {a}
+              {String(a.payload.emoji)}
             </button>
           ))}
         </div>

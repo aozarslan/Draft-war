@@ -58,11 +58,13 @@ export interface ProfileView {
   id: string;
   username: string;
   avatar: string;
+  frame: string;
   banner: string;
   title: string | null;
   level: number;
   xp: number;
   coins: number;
+  items: number;
   createdAt: string;
   lastActiveAt: string;
 }
@@ -121,7 +123,7 @@ export interface ProfilePayload {
 
 export async function createProfile(
   username: string,
-  avatar = "default",
+  avatar = "avatar-target",
 ): Promise<AccountSession> {
   const res = await fetch("/api/profile", {
     method: "POST",
@@ -190,6 +192,43 @@ export async function claimDaily(): Promise<DailyClaim> {
     throw new Error(data.message ?? "Could not claim today's reward.");
   }
   return data as DailyClaim;
+}
+
+export interface OwnedItem {
+  itemId: string;
+  kind: string;
+  source: string;
+  acquiredAt: string;
+}
+
+export interface InventoryPayload {
+  ok: true;
+  owned: OwnedItem[];
+  equipped: Record<string, string | null>;
+}
+
+export async function fetchInventory(): Promise<InventoryPayload | null> {
+  if (!getAccount()) return null;
+  const res = await fetch("/api/profile/inventory", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as InventoryPayload);
+}
+
+/** Asks to wear an item. The server checks that it is owned. */
+export async function equipItem(itemId: string): Promise<void> {
+  const res = await fetch("/api/profile/inventory", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify({ itemId }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.message ?? "Could not equip that.");
+  }
 }
 
 export async function fetchProfile(): Promise<ProfilePayload | null> {

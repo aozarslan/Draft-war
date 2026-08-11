@@ -237,6 +237,8 @@ through the server.
 | `xp_transactions` | Immutable XP ledger, unique per (profile, match, kind) |
 | `coin_transactions` | Immutable coin ledger, unique per (profile, kind, reference) |
 | `match_history` | One row per profile per finished match |
+| `catalog_items` | Every cosmetic: avatar, frame, banner, title. Public read |
+| `profile_items` | Who owns what. No anon policy |
 
 None of the progression tables has an anon policy, so the browser cannot read
 or write coins, XP or rank at all — every number the UI shows was fetched by
@@ -250,6 +252,12 @@ spent inside it and destroyed at the end. Coins persist and buy cosmetics.
 Nothing converts between them in either direction, which is what keeps the shop
 off the battlefield.
 
+**Cosmetics are only cosmetic.** An item carries a name, a rarity, a price and
+a bag of colours — there is no field it could use to touch a stat, a credit or
+a bid, and a test asserts that no payload ever grows one. Ownership is a row in
+`profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
+a forged request can do is ask to wear something it does not own and be told no.
+
 Key functions: `dw_create_room`, `dw_join_room`, `dw_set_ready`,
 `dw_heartbeat` (also migrates a dead host), `dw_start_game`, `dw_place_bid`,
 `dw_pass_auction`, `dw_resolve_auction`, `dw_open_next_auction`,
@@ -258,7 +266,8 @@ Key functions: `dw_create_room`, `dw_join_room`, `dw_set_ready`,
 
 Progression functions: `dw_create_profile`, `dw_link_player_profile`,
 `dw_award_match`, `dw_profile`, `dw_leaderboard`, `dw_award_coins`,
-`dw_spend_coins`, `dw_award_match_coins`, `dw_claim_daily`, `dw_coin_ledger`.
+`dw_spend_coins`, `dw_award_match_coins`, `dw_claim_daily`, `dw_coin_ledger`,
+`dw_grant_item`, `dw_grant_defaults`, `dw_equip_item`, `dw_inventory`.
 
 ---
 
@@ -292,6 +301,9 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
 7. `supabase/migrations/0007_profiles_progression.sql` — profiles, XP, levels,
    rank points, seasons and match history
 8. `supabase/migrations/0008_coins.sql` — the coin economy and its ledger
+9. `supabase/migrations/0009_inventory.sql` — cosmetic inventory and equipping
+10. `supabase/migrations/0010_seed_items.sql` — the cosmetic catalog
+    (generated from `src/lib/game/items.ts` by `npm run seed:items`)
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep

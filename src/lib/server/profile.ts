@@ -221,6 +221,19 @@ export async function awardMatchRewards(
   return lines;
 }
 
+/** What a profile owns and what it is wearing. */
+export async function getInventory(profileId: string) {
+  const data = await rpc("dw_inventory", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(
+      String(data.code ?? "PROFILE_NOT_FOUND"),
+      String(data.message ?? "Profile not found."),
+      404,
+    );
+  }
+  return data;
+}
+
 /** Wallet balance plus the recent ledger — the receipt for every coin held. */
 export async function getCoinLedger(profileId: string, limit = 25) {
   const data = await rpc("dw_coin_ledger", { p_profile_id: profileId, p_limit: limit });

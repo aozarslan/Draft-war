@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { getAccount } from "@/lib/client/account";
 import { rankFromPoints } from "@/lib/game/progression";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
+import { Avatar } from "@/components/ProfileBadge";
 
 interface Entry {
   profileId: string;
   username: string;
   avatar: string;
+  frame: string | null;
   level: number;
   title: string | null;
   rankPoints: number;
@@ -108,9 +110,7 @@ export function LeaderboardClient() {
                   <span className="w-7 text-center text-sm font-black text-white/40">
                     {MEDALS[i] ?? i + 1}
                   </span>
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 text-base">
-                    {e.avatar.length <= 3 ? e.avatar : "🎯"}
-                  </span>
+                  <Avatar avatar={e.avatar} frame={e.frame} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-black">
                       {e.username}
