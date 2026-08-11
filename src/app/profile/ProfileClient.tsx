@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  claimChallenge,
   claimDaily,
   clearAccount,
   createProfile,
   equipItem,
   fetchAchievements,
+  fetchChallenges,
   fetchCoins,
   fetchInventory,
   fetchProfile,
   getAccount,
   type AchievementsPayload,
+  type ChallengeProgress,
   type CoinLedger,
   type InventoryPayload,
   type ProfilePayload,
@@ -27,6 +30,7 @@ import {
   type ItemKind,
 } from "@/lib/game/items";
 import { TIER_STYLE, type AchievementTier } from "@/lib/game/achievements";
+import { ladderView } from "@/lib/game/challenges";
 import { getCategory } from "@/lib/game/categories";
 import { Avatar, CoinPill, LevelBar, TitleTag } from "@/components/ProfileBadge";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
@@ -78,6 +82,13 @@ export function ProfileClient() {
         </div>
       </Panel>
 
+      {/* ---- Challenges ---- */}
+      <Challenges
+        onClaim={(balance) =>
+          setData({ ...data, profile: { ...data.profile, coins: balance } })
+        }
+      />
+
       {/* ---- Medals ---- */}
       <Medals />
 
@@ -98,7 +109,7 @@ export function ProfileClient() {
           <SectionTitle
             right={
               <span className="text-[10px] text-white/35">
-                ends {new Date(data.season.endsAt).toLocaleDateString()}
+                ends {new Date(data.season.endsAt).toLocaleDateString("en-GB")}
               </span>
             }
           >
@@ -179,7 +190,7 @@ export function ProfileClient() {
                     </span>
                     <span className="block text-[10px] text-white/35">
                       {m.placement} of {m.playerCount} · {m.creditsSpent} credits ·{" "}
-                      {new Date(m.at).toLocaleDateString()}
+                      {new Date(m.at).toLocaleDateString("en-GB")}
                     </span>
                   </span>
                   <span className="shrink-0 text-right">
@@ -228,6 +239,148 @@ export function ProfileClient() {
         supported yet.
       </p>
     </div>
+  );
+}
+
+/**
+ * Today's and this week's tasks.
+ *
+ * Progress is a delta from a baseline the server took when the task was
+ * assigned, and finishing is re-checked before anything is paid — so this
+ * shows a position rather than claiming one. The countdown is the period's own
+ * expiry, not a client timer.
+ */
+function Challenges({ onClaim }: { onClaim: (balance: number) => void }) {
+  const [rows, setRows] = useState<ChallengeProgress[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchChallenges().then((c) => setRows(c?.challenges ?? []));
+  }, []);
+
+  async function claim(id: string) {
+    setBusy(id);
+    setNote(null);
+    try {
+      const result = await claimChallenge(id);
+      onClaim(result.balance);
+      setRows((await fetchChallenges())?.challenges ?? []);
+      setNote(`${result.name} · +${result.coins} coins, +${result.xp} XP`);
+      play("sold");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not claim that.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!rows || rows.length === 0) return null;
+
+  const daily = rows.filter((r) => r.scope === "DAILY");
+  const weekly = rows.filter((r) => r.scope === "WEEKLY");
+  const ready = rows.filter((r) => r.complete && !r.claimed).length;
+
+  const section = (title: string, list: ChallengeProgress[]) =>
+    list.length === 0 ? null : (
+      <>
+        <p className="px-4 pb-1.5 pt-1 text-[9px] font-black uppercase tracking-widest text-white/30">
+          {/* Pinned to en-GB: the browser locale would print a Turkish
+              weekday inside an otherwise English interface. */}
+          {title} · resets {new Date(list[0].endsAt).toLocaleString("en-GB", {
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
+        <ul className="space-y-1.5 px-4 pb-2">
+          {list.map((c) => {
+            const percent = Math.min(100, Math.round((c.progress / c.target) * 100));
+            return (
+              <li
+                key={c.id}
+                className="rounded-xl border px-3 py-2.5"
+                style={{
+                  borderColor: c.claimed
+                    ? "rgba(255,255,255,0.06)"
+                    : c.complete
+                      ? "rgba(52,211,153,0.45)"
+                      : "rgba(255,255,255,0.08)",
+                  background: c.complete && !c.claimed ? "rgba(52,211,153,0.08)" : "transparent",
+                  opacity: c.claimed ? 0.5 : 1,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-black">{c.name}</span>
+                    <span className="block truncate text-[10px] text-white/40">
+                      {c.description}
+                    </span>
+                  </span>
+
+                  {c.claimed ? (
+                    <span className="shrink-0 text-[10px] font-black text-white/35">Claimed ✓</span>
+                  ) : c.complete ? (
+                    <button
+                      onClick={() => claim(c.id)}
+                      disabled={busy === c.id}
+                      className="btn btn-primary !min-h-8 shrink-0 !px-2.5 !text-[10px]"
+                    >
+                      {busy === c.id ? "…" : `Claim 🪙 ${c.coins}`}
+                    </button>
+                  ) : (
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[10px] font-black text-amber-200">
+                        🪙 {c.coins}
+                      </span>
+                      <span className="block text-[9px] font-black text-cyan-300">+{c.xp} XP</span>
+                    </span>
+                  )}
+                </div>
+
+                {!c.complete ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="stat-bar flex-1">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-[width] duration-700"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 text-[9px] font-bold tabular-nums text-white/35">
+                      {c.progress} / {c.target}
+                    </span>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      </>
+    );
+
+  return (
+    <Panel accent="#34d399">
+      <SectionTitle
+        right={
+          ready > 0 ? (
+            <span className="rounded-md bg-emerald-400/20 px-1.5 py-0.5 text-[10px] font-black text-emerald-200">
+              {ready} ready
+            </span>
+          ) : null
+        }
+      >
+        🎯 Challenges
+      </SectionTitle>
+
+      {section("Today", daily)}
+      {section("This week", weekly)}
+
+      {note ? (
+        <p className="px-4 pb-4 text-center text-[11px] text-white/50">{note}</p>
+      ) : (
+        <div className="pb-2" />
+      )}
+    </Panel>
   );
 }
 
@@ -494,7 +647,7 @@ function Wallet({ coins, onChange }: { coins: number; onChange: (balance: number
       setLedger(await fetchCoins());
       setNote(
         result.claimed
-          ? `+${result.amount} coins · ${result.streak} day streak`
+          ? `+${result.amount} coins · day ${result.ladderDay} of the run · ${result.streak} in a row`
           : "You already claimed today. Come back tomorrow.",
       );
       if (result.claimed) play("sold");
@@ -510,16 +663,46 @@ function Wallet({ coins, onChange }: { coins: number; onChange: (balance: number
       <SectionTitle right={<CoinPill coins={coins} />}>Wallet</SectionTitle>
 
       <div className="px-4 pb-4">
+        {/* The seven-day ladder. Which day you are on and what it pays are the
+            server's answer — this only draws it. */}
+        {ledger ? (
+          <div className="mb-2.5 flex gap-1">
+            {ladderView(ledger.streak, ledger.dailyClaimed).map((day) => (
+              <div
+                key={day.day}
+                className="flex-1 rounded-lg border py-1.5 text-center"
+                style={{
+                  borderColor: day.today
+                    ? "#fbbf24"
+                    : day.claimed
+                      ? "rgba(251,191,36,0.35)"
+                      : "rgba(255,255,255,0.08)",
+                  background: day.claimed ? "rgba(251,191,36,0.12)" : "transparent",
+                }}
+                title={`Day ${day.day} · ${day.coins} coins`}
+              >
+                <div
+                  className="text-[9px] font-black tabular-nums"
+                  style={{ color: day.claimed || day.today ? "#fcd34d" : "rgba(255,255,255,0.3)" }}
+                >
+                  {day.claimed ? "✓" : day.coins}
+                </div>
+                <div className="text-[8px] font-bold uppercase text-white/25">D{day.day}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <button
           className="btn btn-primary w-full"
           disabled={busy || ledger?.dailyClaimed}
           onClick={claim}
         >
           {ledger?.dailyClaimed
-            ? "Daily reward claimed ✓"
+            ? `Claimed ✓ · tomorrow pays ${ledger.nextAmount}`
             : busy
               ? "Claiming…"
-              : "🎁 Claim 100 daily coins"}
+              : `🎁 Claim ${ledger?.nextAmount ?? 100} daily coins`}
         </button>
         {note ? <p className="mt-2 text-center text-[11px] text-white/50">{note}</p> : null}
 
@@ -534,7 +717,7 @@ function Wallet({ coins, onChange }: { coins: number; onChange: (balance: number
                   {COIN_KIND_LABEL[t.kind] ?? t.kind}
                 </span>
                 <span className="tabular-nums text-white/25">
-                  {new Date(t.at).toLocaleDateString()}
+                  {new Date(t.at).toLocaleDateString("en-GB")}
                 </span>
                 <span
                   className={`w-16 shrink-0 text-right font-black tabular-nums ${

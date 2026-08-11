@@ -242,6 +242,9 @@ through the server.
 | `shop_rotations` | The 24-hour featured window. Public read, server-only write |
 | `achievements` | The catalog: one metric, one threshold, one reward. Public read |
 | `profile_achievements` | Who has unlocked what. No anon policy |
+| `challenge_templates` | The task pool. Public read |
+| `challenge_periods` | A day or a week, with the tasks live in it. Public read |
+| `profile_challenges` | Assignment, baseline and progress. No anon policy |
 
 None of the progression tables has an anon policy, so the browser cannot read
 or write coins, XP or rank at all — every number the UI shows was fetched by
@@ -260,6 +263,12 @@ a bag of colours — there is no field it could use to touch a stat, a credit or
 a bid, and a test asserts that no payload ever grows one. Ownership is a row in
 `profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
 a forged request can do is ask to wear something it does not own and be told no.
+
+**A challenge is the same thing measured as a delta.** When one is assigned,
+the profile's current value for its metric is snapshotted as a baseline, so
+"win 2 matches today" needs no new counter anywhere — progress is whatever has
+happened since. The server assigns them before a match is banked, so a player
+who never opens the profile page still gets credit for playing.
 
 **An achievement is a metric against a threshold**, and every metric is derived
 by `dw_profile_metrics` from match history, the coin ledger and the inventory —
@@ -285,7 +294,9 @@ Progression functions: `dw_create_profile`, `dw_link_player_profile`,
 `dw_spend_coins`, `dw_award_match_coins`, `dw_claim_daily`, `dw_coin_ledger`,
 `dw_grant_item`, `dw_grant_defaults`, `dw_equip_item`, `dw_inventory`,
 `dw_current_rotation`, `dw_item_price`, `dw_buy_item`, `dw_shop`,
-`dw_profile_metrics`, `dw_evaluate_achievements`, `dw_achievements`.
+`dw_profile_metrics`, `dw_evaluate_achievements`, `dw_achievements`,
+`dw_current_period`, `dw_sync_challenges`, `dw_claim_challenge`,
+`dw_daily_ladder`, `dw_claim_daily`.
 
 ---
 
@@ -328,6 +339,10 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
     they are measured against
 13. `supabase/migrations/0013_seed_achievements.sql` — the achievement catalog
     (generated from `src/lib/game/achievements.ts` by `npm run seed:achievements`)
+14. `supabase/migrations/0014_challenges.sql` — daily and weekly challenges and
+    the seven-day login ladder
+15. `supabase/migrations/0015_seed_challenges.sql` — the challenge catalog
+    (generated from `src/lib/game/challenges.ts` by `npm run seed:challenges`)
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep

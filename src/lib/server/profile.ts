@@ -179,6 +179,12 @@ export async function awardMatchRewards(
       roster: mine.map((c) => ({ characterId: c.characterId, price: c.price })),
     };
 
+    // Assign today's challenges *before* this match is banked. Assignment
+    // snapshots the baseline, so doing it afterwards would silently exclude
+    // the match that just finished — and a player who never opens the profile
+    // page would have their first match of the day never count.
+    await rpcOrThrow("dw_sync_challenges", { p_profile_id: seat.profile_id });
+
     const awarded = await rpcOrThrow("dw_award_match", {
       p_game_id: gameId,
       p_profile_id: seat.profile_id,
@@ -238,6 +244,21 @@ export async function awardMatchRewards(
   }
 
   return lines;
+}
+
+/**
+ * The live challenges with the caller's progress.
+ *
+ * This both reads and assigns: a profile that has not seen today's tasks gets
+ * them here, with its current metrics snapshotted as the baseline they will be
+ * measured from.
+ */
+export async function getChallenges(profileId: string) {
+  const data = await rpc("dw_sync_challenges", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "CHALLENGES_ERROR"), String(data.message), 500);
+  }
+  return data;
 }
 
 /** Every achievement with the caller's progress against it. */

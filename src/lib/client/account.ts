@@ -158,6 +158,10 @@ export interface CoinLedger {
   ok: true;
   balance: number;
   dailyClaimed: boolean;
+  /** Consecutive days claimed, including today when it has been. */
+  streak: number;
+  /** What the next claim is worth on the seven-day ladder. */
+  nextAmount: number;
   entries: CoinEntry[];
 }
 
@@ -166,6 +170,10 @@ export interface DailyClaim {
   claimed: boolean;
   amount?: number;
   streak: number;
+  /** Position in the seven-day ladder, 1..7. */
+  ladderDay: number;
+  /** What tomorrow is worth if the streak survives. */
+  nextAmount: number;
   balance: number;
   nextAt: string;
 }
@@ -192,6 +200,62 @@ export async function claimDaily(): Promise<DailyClaim> {
     throw new Error(data.message ?? "Could not claim today's reward.");
   }
   return data as DailyClaim;
+}
+
+export interface ChallengeProgress {
+  id: string;
+  scope: "DAILY" | "WEEKLY";
+  name: string;
+  description: string;
+  metric: string;
+  target: number;
+  coins: number;
+  xp: number;
+  /** Capped at the target. */
+  progress: number;
+  complete: boolean;
+  claimed: boolean;
+  periodId: string;
+  endsAt: string;
+}
+
+export interface ChallengesPayload {
+  ok: true;
+  challenges: ChallengeProgress[];
+}
+
+export interface ChallengeClaim {
+  ok: true;
+  id: string;
+  name: string;
+  coins: number;
+  xp: number;
+  balance: number;
+}
+
+export async function fetchChallenges(): Promise<ChallengesPayload | null> {
+  if (!getAccount()) return null;
+  const res = await fetch("/api/profile/challenges", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as ChallengesPayload);
+}
+
+/** Claims a finished challenge. The server re-checks that it really is. */
+export async function claimChallenge(challengeId: string): Promise<ChallengeClaim> {
+  const res = await fetch("/api/profile/challenges", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify({ challengeId }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.message ?? "Could not claim that.");
+  }
+  return data as ChallengeClaim;
 }
 
 export interface AchievementProgress {

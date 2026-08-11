@@ -57,7 +57,7 @@ export function LeaderboardClient() {
           right={
             data.season ? (
               <span className="text-[10px] text-white/35">
-                ends {new Date(data.season.endsAt).toLocaleDateString()}
+                ends {new Date(data.season.endsAt).toLocaleDateString("en-GB")}
               </span>
             ) : null
           }
