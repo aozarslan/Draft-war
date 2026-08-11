@@ -108,9 +108,14 @@ export function AuctionStage({
   const totalNeeded = draftTotal || snapshot.players.length * perPlayer;
 
   // Auction history, newest first, straight from the append-only game log.
+  // AUTO_ASSIGNED is a character nobody bid on that the draft could not afford
+  // to lose; it belongs in the history like any other sale.
   const sold = snapshot.events
-    .filter((e) => e.type === "SOLD")
-    .map((e) => e.payload as { characterId: string; playerId: string; price: number });
+    .filter((e) => e.type === "SOLD" || e.type === "AUTO_ASSIGNED")
+    .map((e) => ({
+      auto: e.type === "AUTO_ASSIGNED",
+      ...(e.payload as { characterId: string; playerId: string; price: number }),
+    }));
 
   const reason = rosterFull
     ? "Your roster is full."
@@ -453,6 +458,14 @@ export function AuctionStage({
                       >
                         <span className="min-w-0 flex-1 truncate font-semibold text-white/75">
                           {c?.name ?? e.characterId}
+                          {e.auto ? (
+                            <span
+                              className="ml-1 text-white/30"
+                              title="Nobody bid — assigned so every roster could be filled"
+                            >
+                              (unclaimed)
+                            </span>
+                          ) : null}
                         </span>
                         <span className="shrink-0 truncate font-bold" style={{ color }}>
                           {buyer?.nickname ?? "—"}

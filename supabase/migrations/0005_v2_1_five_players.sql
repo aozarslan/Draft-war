@@ -223,3 +223,102 @@ begin
   perform dw_bump(p_room_id);
   return jsonb_build_object('ok', true);
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- 3. A character nobody bid on must not shrink the draft
+--
+-- The draft holds exactly `players x roster` characters, so every one of them
+-- has to find an owner. Passing is already blocked while supply is tight, but
+-- an auction can still expire with no bids at all — everyone distracted, or a
+-- player briefly disconnected — and the character was going UNSOLD. The draft
+-- then ended short and a team went into battle with 3 of 5 characters, which
+-- the game is not supposed to allow.
+--
+-- When that happens and the remaining characters can no longer fill every
+-- roster, the character is handed at the floor price to whoever needs it most:
+-- most empty slots, then most credits, then seat order. Deterministic, cheap
+-- for the receiver, and it keeps the draft at 25/25.
+-- ---------------------------------------------------------------------------
+create or replace function dw_resolve_auction(p_auction_id uuid)
+returns jsonb language plpgsql as $$
+declare
+  a auctions%rowtype;
+  v_min int;
+  v_len int;
+  v_idx int;
+  v_supply_after int;
+  v_demand int;
+  v_forced uuid;
+begin
+  select * into a from auctions where id = p_auction_id for update;
+  if not found then return dw_err('NO_ACTIVE_AUCTION', 'There is no auction running.'); end if;
+  if a.status <> 'ACTIVE' then
+    return jsonb_build_object('ok', true, 'alreadyResolved', true);
+  end if;
+
+  select coalesce((config->>'minBid')::int, 1) into v_min from rooms where id = a.room_id;
+
+  -- Nobody bid: decide whether the draft can afford to lose this character.
+  if a.high_bidder_id is null then
+    select jsonb_array_length(queue), queue_index into v_len, v_idx
+      from games where id = a.game_id;
+    v_supply_after := v_len - v_idx - 1;
+    v_demand := dw_total_demand(a.game_id);
+
+    if v_supply_after < v_demand then
+      select p.id into v_forced
+        from players p
+       where p.room_id = a.room_id
+         and dw_slots_remaining(a.game_id, p.id) > 0
+         and p.credits >= v_min
+       order by dw_slots_remaining(a.game_id, p.id) desc, p.credits desc, p.seat asc
+       limit 1;
+
+      if v_forced is not null then
+        update auctions
+           set status = 'SOLD', winner_id = v_forced, final_price = v_min,
+               current_bid = v_min, high_bidder_id = v_forced, resolved_at = now()
+         where id = a.id;
+
+        update players set credits = credits - v_min where id = v_forced;
+
+        insert into team_characters (game_id, room_id, player_id, character_id, price)
+        values (a.game_id, a.room_id, v_forced, a.character_id, v_min)
+        on conflict (game_id, character_id) do nothing;
+
+        insert into game_events (game_id, room_id, type, payload)
+        values (a.game_id, a.room_id, 'AUTO_ASSIGNED', jsonb_build_object(
+          'characterId', a.character_id, 'playerId', v_forced, 'price', v_min));
+
+        perform dw_open_next_auction(a.game_id);
+        perform dw_bump(a.room_id);
+        return jsonb_build_object('ok', true, 'resolved', true, 'autoAssigned', true);
+      end if;
+    end if;
+  end if;
+
+  if a.high_bidder_id is not null then
+    update auctions
+       set status = 'SOLD', winner_id = a.high_bidder_id, final_price = a.current_bid,
+           resolved_at = now()
+     where id = a.id;
+
+    update players set credits = credits - a.current_bid where id = a.high_bidder_id;
+
+    insert into team_characters (game_id, room_id, player_id, character_id, price)
+    values (a.game_id, a.room_id, a.high_bidder_id, a.character_id, a.current_bid)
+    on conflict (game_id, character_id) do nothing;
+
+    insert into game_events (game_id, room_id, type, payload)
+    values (a.game_id, a.room_id, 'SOLD', jsonb_build_object(
+      'characterId', a.character_id, 'playerId', a.high_bidder_id, 'price', a.current_bid));
+  else
+    update auctions set status = 'UNSOLD', resolved_at = now() where id = a.id;
+    insert into game_events (game_id, room_id, type, payload)
+    values (a.game_id, a.room_id, 'UNSOLD', jsonb_build_object('characterId', a.character_id));
+  end if;
+
+  perform dw_open_next_auction(a.game_id);
+  perform dw_bump(a.room_id);
+  return jsonb_build_object('ok', true, 'resolved', true);
+end $$;
