@@ -49,7 +49,8 @@ type Action =
   | { type: "REACTION"; body: string }
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
-  | { type: "PLAY_AGAIN" };
+  | { type: "PLAY_AGAIN" }
+  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" };
 
 export async function POST(
   request: Request,
@@ -228,6 +229,17 @@ export async function POST(
             return errorResponse("WRONG_PHASE", "Nothing to advance right now.");
         }
         return NextResponse.json({ ok: true });
+      }
+
+      case "REMATCH": {
+        // Same people, straight back in, with the category settled up front so
+        // nobody has to negotiate it twice.
+        const result = await rpcOrThrow("dw_rematch", {
+          p_room_id: roomId,
+          p_player_id: playerId,
+          p_mode: action.mode ?? "SAME",
+        });
+        return NextResponse.json(result);
       }
 
       case "PLAY_AGAIN": {

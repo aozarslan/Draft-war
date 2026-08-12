@@ -104,6 +104,12 @@ export function ResultsStage({
 
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/room/${snapshot.room.code}` : "";
+  // The match page outlives the room: a room code gets reused by the next
+  // rematch, but this link always shows the game that was actually played.
+  const matchUrl =
+    typeof window !== "undefined" && snapshot.game
+      ? `${window.location.origin}/match/${snapshot.game.id}`
+      : "";
 
   return (
     <div className="space-y-4">
@@ -405,15 +411,38 @@ export function ResultsStage({
       {/* ---------- Actions ---------- */}
       <div className="sticky bottom-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {me?.isHost ? (
-          <button
-            className="btn btn-primary sm:col-span-2"
-            onClick={() => {
-              play("click");
-              void act({ type: "PLAY_AGAIN" });
-            }}
-          >
-            Play again · back to lobby
-          </button>
+          <>
+            {/* Rematch is the prominent action, and "same category" is the
+                default because it is what people want after a close game and
+                should take the fewest taps. */}
+            <button
+              className="btn btn-primary sm:col-span-2"
+              onClick={() => {
+                play("click");
+                void act({ type: "REMATCH", mode: "SAME" });
+              }}
+            >
+              🔁 Rematch · same category
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                play("click");
+                void act({ type: "REMATCH", mode: "NEW" });
+              }}
+            >
+              Rematch · pick a category
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                play("click");
+                void act({ type: "REMATCH", mode: "RANDOM" });
+              }}
+            >
+              Rematch · surprise us
+            </button>
+          </>
         ) : (
           <p className="glass rounded-xl px-4 py-3 text-center text-xs font-semibold text-white/45 sm:col-span-2">
             Waiting for the host to start the next round…
@@ -425,6 +454,11 @@ export function ResultsStage({
         <button className="btn" onClick={() => copy(shareUrl, "link")}>
           {copied === "link" ? "✅ Copied" : "🔗 Share room"}
         </button>
+        {matchUrl ? (
+          <button className="btn sm:col-span-2" onClick={() => copy(matchUrl, "match")}>
+            {copied === "match" ? "✅ Copied" : "🏆 Share this result"}
+          </button>
+        ) : null}
       </div>
     </div>
   );

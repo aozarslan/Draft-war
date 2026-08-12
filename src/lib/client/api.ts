@@ -97,7 +97,8 @@ export type ClientAction =
   | { type: "SET_FORMATION"; formation: string }
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
-  | { type: "PLAY_AGAIN" };
+  | { type: "PLAY_AGAIN" }
+  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" };
 
 /**
  * A fresh id for one player intention.

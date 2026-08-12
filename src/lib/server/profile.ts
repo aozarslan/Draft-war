@@ -238,6 +238,18 @@ export async function awardMatchRewards(
   return settled.filter((line): line is RewardLine => line !== null);
 }
 
+/** A rivalry record between two profiles, derived from match history. */
+export async function getHeadToHead(profileId: string, rivalId: string) {
+  const data = await rpc("dw_head_to_head", {
+    p_profile_id: profileId,
+    p_rival_id: rivalId,
+  });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "H2H_ERROR"), String(data.message), 404);
+  }
+  return data;
+}
+
 /** Friends, plus requests in both directions. */
 export async function getFriends(profileId: string) {
   const data = await rpc("dw_friends", { p_profile_id: profileId });
