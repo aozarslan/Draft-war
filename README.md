@@ -266,6 +266,12 @@ a bid, and a test asserts that no payload ever grows one. Ownership is a row in
 `profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
 a forged request can do is ask to wear something it does not own and be told no.
 
+**The hub is two shapes of one layout.** On a laptop the links live in the top
+bar; below `sm` they move to a bottom bar within thumb reach and the top bar
+keeps only what has to be glanceable — who you are, what you have, and whether
+anything is waiting. A live room renders neither: once the auction starts the
+only thing on screen is the game.
+
 **A friendship is one row for two people.** A generated pair key means "A asked
 B" and "B asked A" cannot both exist, and every query reads the same row from
 either side. There is no endpoint that lists or searches profiles — you add

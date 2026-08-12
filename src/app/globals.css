@@ -174,3 +174,10 @@ input::placeholder { color: rgb(232 236 248 / 0.35); }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The bottom navigation floats over the page on a phone, so every hub page
+   needs room to scroll past it. A live room renders no <main> at all, which is
+   exactly why this is scoped to that element rather than the body. */
+@media (max-width: 639px) {
+  main { padding-bottom: 5.5rem; }
+}

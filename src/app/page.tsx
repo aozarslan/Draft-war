@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, createRoom, joinRoom } from "@/lib/client/api";
 import { lastNickname, setSession } from "@/lib/client/session";
+import { getAccount } from "@/lib/client/account";
 import { play } from "@/lib/client/sound";
 import { SiteNav } from "@/components/SiteNav";
+import { HubSummary } from "@/components/HubSummary";
 import { CATEGORIES } from "@/lib/game/categories";
 import type { CategoryMode } from "@/lib/game/types";
 
@@ -27,6 +29,7 @@ function Landing() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
 
   // Category choice made at creation time. Empty + HOST means "decide later".
   const [picked, setPicked] = useState<string[]>([]);
@@ -34,6 +37,7 @@ function Landing() {
   const [ranked, setRanked] = useState(false);
 
   useEffect(() => {
+    setSignedIn(Boolean(getAccount()));
     setNickname(lastNickname());
     const prefill = params.get("code");
     if (prefill) {
@@ -113,7 +117,12 @@ function Landing() {
     <>
       <SiteNav />
       <main className="mx-auto flex w-full max-w-xl flex-col gap-6 px-5 py-8">
-        <header className="text-center">
+        {/* Signed in, this is a hub and the card carries the identity; signed
+            out it is a landing page and the name has to do that job. The two
+            never both shout. */}
+        <HubSummary />
+
+        <header className={`text-center ${signedIn ? "sr-only" : ""}`}>
           <p className="mb-3 text-[11px] font-black uppercase tracking-[0.45em] text-white/35">
             Auction · Draft · Battle
           </p>

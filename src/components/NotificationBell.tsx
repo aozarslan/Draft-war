@@ -27,6 +27,10 @@ export function NotificationBell() {
   const [items, setItems] = useState<NotificationView[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
+  // Whether there is an account lives in state rather than being read from
+  // localStorage while rendering: the server has no localStorage, so branching
+  // on it during the first render is a hydration mismatch.
+  const [signedIn, setSignedIn] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -37,14 +41,21 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
-    if (!getAccount()) return;
-    void load();
-    const id = setInterval(load, 45_000);
-    const onAccount = () => void load();
-    window.addEventListener("draftwar:account", onAccount);
+    const sync = () => {
+      const has = Boolean(getAccount());
+      setSignedIn(has);
+      if (has) void load();
+      else {
+        setItems([]);
+        setUnread(0);
+      }
+    };
+    sync();
+    const id = setInterval(sync, 45_000);
+    window.addEventListener("draftwar:account", sync);
     return () => {
       clearInterval(id);
-      window.removeEventListener("draftwar:account", onAccount);
+      window.removeEventListener("draftwar:account", sync);
     };
   }, [load]);
 
@@ -58,7 +69,7 @@ export function NotificationBell() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  if (!getAccount()) return null;
+  if (!signedIn) return null;
 
   async function toggle() {
     const next = !open;
