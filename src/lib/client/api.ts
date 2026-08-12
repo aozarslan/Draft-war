@@ -94,6 +94,7 @@ export type ClientAction =
   | { type: "PASS"; auctionId: string; actionId?: string }
   | { type: "CHAT"; body: string }
   | { type: "REACTION"; body: string }
+  | { type: "SET_FORMATION"; formation: string }
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
   | { type: "PLAY_AGAIN" };

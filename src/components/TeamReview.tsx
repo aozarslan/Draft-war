@@ -6,6 +6,13 @@ import type { Character } from "@/lib/game/types";
 import { computeSynergy } from "@/lib/game/battle";
 import { AXIS_KEYS, AXIS_LABELS, allAxes, getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
+import {
+  FORMATIONS,
+  FORMATION_IDS,
+  getFormation,
+  type FormationId,
+} from "@/lib/game/formations";
+import { play } from "@/lib/client/sound";
 import { CharacterImage } from "./CharacterImage";
 import { CharacterModal } from "./CharacterModal";
 import { GameRatingNote } from "./GameRatingNote";
@@ -64,6 +71,8 @@ export function TeamReview({
           everyone paid for.
         </p>
       </div>
+
+      <FormationPicker store={store} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {snapshot.players.map((p) => {
@@ -178,5 +187,85 @@ export function TeamReview({
 
       <CharacterModal character={detail} onClose={() => setDetail(null)} />
     </div>
+  );
+}
+
+/**
+ * The one decision between the draft and the battle.
+ *
+ * Deliberately shown with its cost as prominently as its benefit — every
+ * formation trades one axis for another, and a picker that only listed the
+ * upside would imply there is a correct answer. Locked once the battlefield
+ * vote opens, so nobody can react to the map.
+ */
+function FormationPicker({ store }: { store: RoomStore }) {
+  const { snapshot, me, act } = store;
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!snapshot || !me) return null;
+
+  const mine = snapshot.players.find((p) => p.id === me.id);
+  const current = getFormation(mine?.formation);
+
+  async function choose(id: FormationId) {
+    if (id === current.id) return;
+    setBusy(id);
+    play("click");
+    await act({ type: "SET_FORMATION", formation: id });
+    setBusy(null);
+  }
+
+  return (
+    <Panel accent={current.colour}>
+      <SectionTitle
+        right={
+          <span className="text-[10px] text-white/35">
+            locked when the map vote opens
+          </span>
+        }
+      >
+        Formation
+      </SectionTitle>
+
+      <div className="grid grid-cols-2 gap-2 px-4 pb-2 sm:grid-cols-5">
+        {FORMATION_IDS.map((id) => {
+          const f = FORMATIONS[id];
+          const on = current.id === id;
+          return (
+            <button
+              key={id}
+              onClick={() => choose(id)}
+              disabled={busy !== null}
+              aria-pressed={on}
+              className="flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 transition active:scale-95 disabled:opacity-60"
+              style={{
+                borderColor: on ? f.colour : "rgba(255,255,255,0.1)",
+                background: on ? `${f.colour}1a` : "transparent",
+                boxShadow: on ? `0 0 20px -8px ${f.colour}` : undefined,
+              }}
+            >
+              <span className="text-lg leading-none">{f.icon}</span>
+              <span
+                className="text-[10px] font-black uppercase tracking-wider"
+                style={{ color: on ? f.colour : "rgba(255,255,255,0.55)" }}
+              >
+                {f.name}
+              </span>
+              <span className="text-[9px] tabular-nums text-white/35">
+                {Object.keys(f.modifiers).length === 0
+                  ? "no change"
+                  : Object.entries(f.modifiers)
+                      .map(([axis, m]) => `${m > 1 ? "+" : ""}${Math.round((m - 1) * 100)}% ${axis.slice(0, 3)}`)
+                      .join(" · ")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="px-4 pb-4 text-[11px] text-white/45">
+        {current.blurb} Every formation gives up as much as it gains — none of
+        them is the right answer.
+      </p>
+    </Panel>
   );
 }

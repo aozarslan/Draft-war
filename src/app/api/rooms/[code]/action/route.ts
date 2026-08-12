@@ -44,6 +44,7 @@ type Action =
   | { type: "VOTE_CATEGORY"; categoryId: string }
   | { type: "BID"; auctionId: string; amount: number; actionId?: string }
   | { type: "PASS"; auctionId: string; actionId?: string }
+  | { type: "SET_FORMATION"; formation: string }
   | { type: "CHAT"; body: string }
   | { type: "REACTION"; body: string }
   | { type: "VOTE_MAP"; mapId: string }
@@ -162,6 +163,14 @@ export async function POST(
           p_player_id: playerId,
           p_auction_id: action.auctionId,
           p_action_id: actionId(action.actionId),
+        });
+        return NextResponse.json(result);
+      }
+
+      case "SET_FORMATION": {
+        const result = await rpcOrThrow("dw_set_formation", {
+          p_player_id: playerId,
+          p_formation: String(action.formation ?? ""),
         });
         return NextResponse.json(result);
       }

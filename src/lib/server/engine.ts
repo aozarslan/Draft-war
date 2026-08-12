@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createRng, randomSeed } from "@/lib/game/rng";
 import { computeAxisBands, simulateBattle } from "@/lib/game/battle";
+import type { FormationId } from "@/lib/game/formations";
 import { buildAuctionQueue, draftSize, queueSize, rosterSize } from "@/lib/game/auction";
 import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
@@ -38,6 +39,7 @@ export interface Snapshot {
     colorIndex: number;
     isHost: boolean;
     isReady: boolean;
+    formation: FormationId;
     connected: boolean;
     credits: number;
     wins: number;
@@ -522,6 +524,7 @@ export async function runBattle(roomId: string): Promise<void> {
       playerId: p.id,
       nickname: p.nickname,
       characters: p.roster,
+      formation: p.formation,
     }));
 
   if (teams.length < 2) {
