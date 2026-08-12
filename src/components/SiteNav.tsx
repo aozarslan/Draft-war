@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/achievements", label: "Medals" },
   { href: "/collection", label: "Collection" },
   { href: "/friends", label: "Friends" },
+  { href: "/leagues", label: "Leagues" },
 ];
 
 /**

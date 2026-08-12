@@ -238,6 +238,24 @@ export async function awardMatchRewards(
   return settled.filter((line): line is RewardLine => line !== null);
 }
 
+/** Every league this profile belongs to. */
+export async function getMyLeagues(profileId: string) {
+  const data = await rpc("dw_my_leagues", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "LEAGUES_ERROR"), String(data.message), 500);
+  }
+  return data;
+}
+
+/** One league's table, derived from the matches its members actually played. */
+export async function getLeagueStandings(leagueId: string) {
+  const data = await rpc("dw_league_standings", { p_league_id: leagueId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "NO_SUCH_LEAGUE"), String(data.message), 404);
+  }
+  return data;
+}
+
 /** Mastery per character, and the collection per category. */
 export async function getCollection(profileId: string) {
   const [mastery, collection] = await Promise.all([
