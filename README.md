@@ -245,6 +245,8 @@ through the server.
 | `challenge_templates` | The task pool. Public read |
 | `challenge_periods` | A day or a week, with the tasks live in it. Public read |
 | `profile_challenges` | Assignment, baseline and progress. No anon policy |
+| `friendships` | One row per pair, keyed both ways. No anon policy |
+| `notifications` | The inbox. No anon policy |
 
 None of the progression tables has an anon policy, so the browser cannot read
 or write coins, XP or rank at all — every number the UI shows was fetched by
@@ -263,6 +265,14 @@ a bag of colours — there is no field it could use to touch a stat, a credit or
 a bid, and a test asserts that no payload ever grows one. Ownership is a row in
 `profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
 a forged request can do is ask to wear something it does not own and be told no.
+
+**A friendship is one row for two people.** A generated pair key means "A asked
+B" and "B asked A" cannot both exist, and every query reads the same row from
+either side. There is no endpoint that lists or searches profiles — you add
+somebody by typing their exact username, which is the same privacy floor as a
+friend code. A decline is silent, and so is a block: a blocked requester is
+told their request is pending, because a block that announces itself is not a
+block.
 
 **A challenge is the same thing measured as a delta.** When one is assigned,
 the profile's current value for its metric is snapshotted as a baseline, so
@@ -296,7 +306,10 @@ Progression functions: `dw_create_profile`, `dw_link_player_profile`,
 `dw_current_rotation`, `dw_item_price`, `dw_buy_item`, `dw_shop`,
 `dw_profile_metrics`, `dw_evaluate_achievements`, `dw_achievements`,
 `dw_current_period`, `dw_sync_challenges`, `dw_claim_challenge`,
-`dw_daily_ladder`, `dw_claim_daily`.
+`dw_daily_ladder`, `dw_claim_daily`, `dw_find_profile`,
+`dw_send_friend_request`, `dw_respond_friend_request`, `dw_remove_friend`,
+`dw_invite_friend`, `dw_friends`, `dw_notify`, `dw_notifications`,
+`dw_read_notifications`.
 
 ---
 
@@ -343,6 +356,8 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
     the seven-day login ladder
 15. `supabase/migrations/0015_seed_challenges.sql` — the challenge catalog
     (generated from `src/lib/game/challenges.ts` by `npm run seed:challenges`)
+16. `supabase/migrations/0016_friends.sql` — friends, room invites and the
+    notification inbox
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep

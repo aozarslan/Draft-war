@@ -246,6 +246,24 @@ export async function awardMatchRewards(
   return lines;
 }
 
+/** Friends, plus requests in both directions. */
+export async function getFriends(profileId: string) {
+  const data = await rpc("dw_friends", { p_profile_id: profileId });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "FRIENDS_ERROR"), String(data.message), 404);
+  }
+  return data;
+}
+
+/** The inbox, newest first, with the unread count. */
+export async function getNotifications(profileId: string, limit = 30) {
+  const data = await rpc("dw_notifications", { p_profile_id: profileId, p_limit: limit });
+  if (data.ok === false) {
+    throw new EngineError(String(data.code ?? "NOTIFICATIONS_ERROR"), String(data.message), 404);
+  }
+  return data;
+}
+
 /**
  * The live challenges with the caller's progress.
  *

@@ -202,6 +202,97 @@ export async function claimDaily(): Promise<DailyClaim> {
   return data as DailyClaim;
 }
 
+// ---------------------------------------------------------------------------
+// Friends and notifications
+// ---------------------------------------------------------------------------
+
+export interface FriendView {
+  friendshipId: string;
+  profileId: string;
+  username: string;
+  avatar: string;
+  frame: string | null;
+  title: string | null;
+  level: number;
+  lastActiveAt?: string;
+  online?: boolean;
+  since?: string | null;
+  at?: string;
+}
+
+export interface FriendsPayload {
+  ok: true;
+  friends: FriendView[];
+  incoming: FriendView[];
+  outgoing: FriendView[];
+}
+
+export interface NotificationView {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read: boolean;
+  at: string;
+}
+
+export interface NotificationsPayload {
+  ok: true;
+  unread: number;
+  notifications: NotificationView[];
+}
+
+export async function fetchFriends(): Promise<FriendsPayload | null> {
+  if (!getAccount()) return null;
+  const res = await fetch("/api/profile/friends", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as FriendsPayload);
+}
+
+type FriendAction =
+  | { action: "ADD"; username: string }
+  | { action: "RESPOND"; friendshipId: string; accept: boolean }
+  | { action: "REMOVE"; profileId: string; block?: boolean }
+  | { action: "INVITE"; profileId: string; roomCode: string };
+
+export async function friendAction(input: FriendAction): Promise<Record<string, unknown>> {
+  const res = await fetch("/api/profile/friends", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.message ?? "That did not work.");
+  }
+  return data;
+}
+
+export async function fetchNotifications(): Promise<NotificationsPayload | null> {
+  if (!getAccount()) return null;
+  const res = await fetch("/api/profile/notifications", {
+    headers: accountHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.ok === false ? null : (data as NotificationsPayload);
+}
+
+/** Marks everything read, or just the ids given. */
+export async function markNotificationsRead(ids?: string[]): Promise<void> {
+  await fetch("/api/profile/notifications", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+}
+
 export interface ChallengeProgress {
   id: string;
   scope: "DAILY" | "WEEKLY";
