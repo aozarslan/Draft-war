@@ -5,6 +5,8 @@ import type { RoomStore } from "@/lib/client/useRoom";
 import type { BattleMap, Character, CombatantResult, EventCard } from "@/lib/game/types";
 import { playerColor } from "@/lib/game/colors";
 import { getCategory } from "@/lib/game/categories";
+import { draftEfficiency, efficiencyLabel } from "@/lib/game/archetypes";
+import { getFormation as formationOf } from "@/lib/game/formations";
 import { play } from "@/lib/client/sound";
 import { CharacterArt } from "./CharacterArt";
 import { Panel, SectionTitle } from "./ui";
@@ -61,6 +63,13 @@ export function ResultsStage({
   const winnerColor = winner ? playerColor(winner.colorIndex) : null;
   const mvpChar = result.mvp ? charactersById[result.mvp.characterId] : null;
   const mvpStats = result.combatants.find((c) => c.characterId === result.mvp?.characterId);
+  const winnerTeam = result.teams.find((t) => t.playerId === result.winnerPlayerId);
+
+  // What each player actually spent, from the battle's own record of prices.
+  const spendByPlayer = new Map<string, number>();
+  for (const c of result.combatants) {
+    spendByPlayer.set(c.playerId, (spendByPlayer.get(c.playerId) ?? 0) + c.price);
+  }
 
   const economy = (() => {
     const sorted = [...result.combatants].sort((a, b) => a.price - b.price);
@@ -122,6 +131,15 @@ export function ResultsStage({
             {maps.find((m) => m.id === result.mapId)?.name} ·{" "}
             {events.find((e) => e.id === result.eventId)?.name}
           </p>
+
+          {/* Only shown when the forecast really did favour somebody else by a
+              clear margin — a badge that appears on every close game means
+              nothing. */}
+          {result.upset ? (
+            <p className="mt-3 inline-block animate-[slam_0.7s_both] rounded-xl border border-amber-400/50 bg-amber-400/15 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-amber-300">
+              🔥 Major upset · won at {Math.round(winnerTeam?.winProbability ?? 0)}%
+            </p>
+          ) : null}
         </div>
 
         {mvpChar ? (
@@ -140,6 +158,25 @@ export function ResultsStage({
                 <span>Specials {mvpStats?.specials ?? 0}</span>
                 <span>Eliminations {mvpStats?.kills ?? 0}</span>
               </div>
+
+              {/* Not "most damage" — the share of the team's damage this
+                  character's own numbers predicted, against what they actually
+                  delivered. It is how a cheap pick outranks a headline name. */}
+              {result.mvp && result.mvp.expected > 0 ? (
+                <p className="mt-1.5 text-[11px] font-bold">
+                  <span className="text-white/40">
+                    Expected {result.mvp.expected}% of the team&apos;s damage, delivered{" "}
+                    {result.mvp.actual}% —{" "}
+                  </span>
+                  <span
+                    style={{
+                      color: result.mvp.performance >= 100 ? "#34d399" : "#fbbf24",
+                    }}
+                  >
+                    {result.mvp.performance}% of expectation
+                  </span>
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -172,6 +209,37 @@ export function ResultsStage({
                       {team.survivors} survived · {team.totalDamage} damage ·{" "}
                       {team.remainingHpPct}% health · power {Math.round(team.teamRating)} ·
                       forecast {team.winProbability}%
+                    </span>
+                    {/* What the squad cost against what it was worth. The
+                        auction is the identity of the game, so how well
+                        somebody drafted deserves a line of its own next to how
+                        well they fought. */}
+                    <span className="block text-[11px]">
+                      <span className="font-black text-cyan-300">
+                        {draftEfficiency(
+                          team.teamRating,
+                          spendByPlayer.get(team.playerId) ?? 0,
+                          p.roster.length,
+                        )}
+                      </span>
+                      <span className="text-white/35">
+                        {" "}
+                        draft efficiency ·{" "}
+                        {efficiencyLabel(
+                          draftEfficiency(
+                            team.teamRating,
+                            spendByPlayer.get(team.playerId) ?? 0,
+                            p.roster.length,
+                          ),
+                        )}{" "}
+                        · {spendByPlayer.get(team.playerId) ?? 0} credits
+                      </span>
+                      {formationOf(p.formation).id !== "BALANCED" ? (
+                        <span style={{ color: formationOf(p.formation).colour }}>
+                          {" · "}
+                          {formationOf(p.formation).icon} {formationOf(p.formation).name}
+                        </span>
+                      ) : null}
                     </span>
                     {team.synergies?.length ? (
                       <span className="mt-1 flex flex-wrap gap-1">

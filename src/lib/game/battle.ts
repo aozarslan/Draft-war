@@ -56,7 +56,12 @@ const PHASES = [
   { id: "OPENING", label: "Opening" },
   { id: "ENGAGEMENT", label: "Engagement" },
   { id: "ADVANTAGE", label: "Advantage" },
-  { id: "TURNING_POINT", label: "Turning point" },
+  // V4's phase list calls this one "Turning point", but the turning point is
+  // also a *detected moment* that can land in any phase — a divider reading
+  // "TURNING POINT · ROUND 6" above a card reading "Round 4 turned it" is two
+  // different things wearing one name. The phase is renamed; the moment keeps
+  // the name that matters.
+  { id: "PRESSURE", label: "Pressure" },
   { id: "FINAL_CLASH", label: "Final clash" },
 ] as const;
 

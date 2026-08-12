@@ -63,7 +63,8 @@ export function BattleStage({
     const entry = visible[visible.length - 1];
     if (entry.kind === "CRIT" || entry.kind === "ELIMINATION") play("crit");
     else if (entry.kind === "SPECIAL") play("bid");
-    else if (entry.kind === "ROUND_START") play("tick");
+    else if (entry.kind === "PHASE" || entry.kind === "ROUND_START") play("tick");
+    else if (entry.kind === "TURNING_POINT") play("crit");
   }, [visible]);
 
   useEffect(() => {
@@ -212,7 +213,7 @@ export function BattleStage({
                     ).hex
                   : "#94a3b8";
 
-                if (e.kind === "ROUND_START") {
+                if (e.kind === "ROUND_START" || e.kind === "PHASE") {
                   return (
                     <li key={i} className="pt-3">
                       <div className="flex items-center gap-2">
@@ -222,6 +223,23 @@ export function BattleStage({
                         </span>
                         <span className="h-px flex-1 bg-white/10" />
                       </div>
+                    </li>
+                  );
+                }
+
+                // The moment the battle swung. Given its own card rather than
+                // a log line — a comeback that scrolls past like an ordinary
+                // hit is not a comeback the player noticed.
+                if (e.kind === "TURNING_POINT") {
+                  return (
+                    <li
+                      key={i}
+                      className="my-2 animate-[slam_0.5s_both] rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-center"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-300">
+                        🔥 Turning point
+                      </p>
+                      <p className="mt-1 text-sm font-bold">{e.text}</p>
                     </li>
                   );
                 }
