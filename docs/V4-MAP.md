@@ -241,3 +241,25 @@ Only the P0 gaps, in the order V4 gives:
    multiplayer bug can be read out of the log afterwards.
 
 Nothing in Phase 1 touches the battle, the economy or the UI.
+
+---
+
+## 6. What Phase 2 changes
+
+Draft gameplay, per V4's order:
+
+1. **Archetypes**, derived from the axes rather than authored. Ten roles read
+   out of a character's own profile, so a character added tomorrow is labelled
+   with no extra work and the labels cannot drift when the numbers are retuned.
+   Calibrated against the real 268-character pool: an earlier cut labelled a
+   quarter of the game BOSS.
+2. **Hidden power.** The auction shows a band, not the number. Deterministic in
+   the character and the game seed, so every player in a room sees the same
+   range; ranked hides more than casual. The exact value arrives at team review.
+3. **Draft efficiency** — team power per credit, with a plain-language read.
+4. **Auction moments** — bargain, overpay, biggest bid, most contested, buzzer
+   beater, unsold count, perfect budget. A read model over `bids`,
+   `team_characters` and `auctions`, so nothing new is written during a game.
+
+Formations are listed under V4's Phase 2 but are mechanically a battle feature;
+they land in Phase 3 with the battle simulation they modify.

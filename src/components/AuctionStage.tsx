@@ -8,6 +8,8 @@ import { getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
 import { play } from "@/lib/client/sound";
 import { newActionId } from "@/lib/client/api";
+import { archetypeOf, powerBand } from "@/lib/game/archetypes";
+import { allAxes } from "@/lib/game/categories";
 import { CharacterImage, ImageCredit } from "./CharacterImage";
 import { CharacterModal } from "./CharacterModal";
 import { PlayerRail } from "./PlayerRail";
@@ -82,6 +84,17 @@ export function AuctionStage({
   const iPassed = me ? auction.passedPlayerIds.includes(me.id) : false;
   const iLead = Boolean(me && auction.highBidderId === me.id);
   const rosterFull = slots <= 0;
+
+  // Hidden power: a band rather than the number, derived from the character and
+  // the game seed so every player in this room sees the same range. Ranked
+  // hides more than casual. The exact value arrives at team review.
+  const band = powerBand(
+    character.id,
+    character.gamePower,
+    store.snapshot?.game?.seed ?? store.snapshot?.room.code ?? "",
+    store.snapshot?.room.config.ranked ? "RANKED" : "CASUAL",
+  );
+  const archetype = archetypeOf(allAxes(category, character.stats));
 
   const canBid = (amount: number) =>
     Boolean(me) && !iPassed && !iLead && !rosterFull && !revealing &&
@@ -168,11 +181,11 @@ export function AuctionStage({
           {stage === "power" ? (
             <div className="animate-[pop_0.3s]">
               <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">
-                Game power
+                Power estimate
               </p>
               <p className="headline text-[clamp(3rem,16vw,6rem)] leading-none"
                  style={{ color: category.accent }}>
-                {character.gamePower}
+                {band.label}
               </p>
             </div>
           ) : null}
@@ -223,11 +236,38 @@ export function AuctionStage({
                       className="headline text-3xl leading-none"
                       style={{ color: category.accent }}
                     >
-                      {character.gamePower}
+                      {band.label}
                     </span>
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
-                      Game power
+                      Power estimate
                     </span>
+                  </div>
+
+                  {/* What kind of fighter this is — the part of the card that
+                      makes two similarly-priced characters different bids. */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span
+                      className="rounded-md px-2 py-1 text-[10px] font-black"
+                      style={{
+                        background: `${archetype.primary.colour}22`,
+                        color: archetype.primary.colour,
+                      }}
+                      title={archetype.primary.blurb}
+                    >
+                      {archetype.primary.icon} {archetype.primary.name}
+                    </span>
+                    {archetype.secondary ? (
+                      <span
+                        className="rounded-md px-2 py-1 text-[10px] font-bold"
+                        style={{
+                          background: `${archetype.secondary.colour}18`,
+                          color: `${archetype.secondary.colour}cc`,
+                        }}
+                        title={archetype.secondary.blurb}
+                      >
+                        {archetype.secondary.icon} {archetype.secondary.name}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
