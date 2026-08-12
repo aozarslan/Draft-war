@@ -1,4 +1,5 @@
 import { createRng } from "./rng";
+import { applyFormation, getFormation, type FormationId } from "./formations";
 import {
   AXIS_KEYS,
   CATEGORIES,
@@ -46,6 +47,28 @@ const MAX_STEP_MS = 520;
 const POINTS_TABLE = [3, 2, 1, 0];
 
 /**
+ * The shape V4 asks a battle to have. Rounds are mapped onto these after the
+ * fight, because how long a battle ran is not known until it stops — a
+ * three-round rout and a fourteen-round grind both deserve an opening and a
+ * final clash.
+ */
+const PHASES = [
+  { id: "OPENING", label: "Opening" },
+  { id: "ENGAGEMENT", label: "Engagement" },
+  { id: "ADVANTAGE", label: "Advantage" },
+  { id: "TURNING_POINT", label: "Turning point" },
+  { id: "FINAL_CLASH", label: "Final clash" },
+] as const;
+
+/** Which phase a round belongs to, given how many rounds the battle lasted. */
+function phaseOfRound(round: number, totalRounds: number): (typeof PHASES)[number] {
+  if (totalRounds <= 1) return PHASES[0];
+  const t = (round - 1) / (totalRounds - 1);
+  const index = Math.min(PHASES.length - 1, Math.floor(t * PHASES.length));
+  return PHASES[index];
+}
+
+/**
  * Shared combat-value band that every category is mapped onto in a crossover.
  * These are in the units `combatValue` returns, not raw stat points.
  */
@@ -56,6 +79,8 @@ export interface BattleTeamInput {
   playerId: string;
   nickname: string;
   characters: { characterId: string; price: number }[];
+  /** Chosen between the draft and the battle. Defaults to BALANCED. */
+  formation?: FormationId;
 }
 
 /**
@@ -310,6 +335,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
       .filter(Boolean);
     const synergy = computeSynergy(chars);
     teamSynergy.set(team.playerId, synergy);
+    const formation = getFormation(team.formation);
 
     // CHAOS drains a slice of one random axis for the whole team.
     const drainAxis =
@@ -321,7 +347,10 @@ export function simulateBattle(input: SimulateInput): BattleResult {
       if (!c) continue;
 
       const env = environmentMultiplier(c, map, event);
-      const base = projectAxes(c, projection);
+      // Formation first, then the environment, then the event's drain. The
+      // order matters only a little, but it has to be *an* order: applying the
+      // formation last would let it partly undo a map that is meant to hurt.
+      const base = applyFormation(projectAxes(c, projection), formation);
       const axes = {} as Record<AxisKey, number>;
       for (const key of AXIS_KEYS) {
         axes[key] = Math.max(
@@ -374,6 +403,21 @@ export function simulateBattle(input: SimulateInput): BattleResult {
   const log: BattleLogEntry[] = [];
   const aliveTeams = () =>
     new Set(combatants.filter((c) => c.hp > 0).map((c) => c.playerId));
+
+  // Live odds after each round, so the swing can be found afterwards. Health
+  // and firepower still standing is the honest read on who is winning — it is
+  // the same quantity the forecast was built from.
+  const oddsByRound: { round: number; odds: number[] }[] = [];
+  const liveOdds = () =>
+    winProbabilities(
+      teams.map((t) => {
+        const mine = combatants.filter((c) => c.playerId === t.playerId);
+        return mine.reduce(
+          (sum, c) => sum + (c.hp > 0 ? combatValue(c.axes) * (c.hp / c.maxHp) : 0),
+          0,
+        );
+      }),
+    );
 
   let round = 0;
   while (round < MAX_ROUNDS && aliveTeams().size > 1) {
@@ -464,6 +508,8 @@ export function simulateBattle(input: SimulateInput): BattleResult {
         if (aliveTeams().size <= 1) break;
       }
     }
+
+    oddsByRound.push({ round, odds: liveOdds() });
   }
 
   // ---- 4. Standings --------------------------------------------------------
@@ -502,6 +548,77 @@ export function simulateBattle(input: SimulateInput): BattleResult {
   const winnerPlayerId = teamStats[0]?.playerId ?? "";
   const winnerName =
     teams.find((t) => t.playerId === winnerPlayerId)?.nickname ?? "—";
+  const winnerIndex = teams.findIndex((t) => t.playerId === winnerPlayerId);
+
+  // An upset is the forecast's least-liked team winning. Ties are not upsets.
+  const bestForecast = Math.max(...probabilities);
+  const winnerForecast = probabilities[winnerIndex] ?? 0;
+  // An upset needs a forecast that actually favoured somebody else. Between
+  // two evenly matched teams the "least fancied" side wins about half the
+  // time, and calling that an upset would put the badge on a coin flip.
+  // NB: winProbabilities returns percentages (0-100), not fractions. Every
+  // threshold here is on that scale.
+  const upset =
+    winnerIndex >= 0 &&
+    winnerForecast === Math.min(...probabilities) &&
+    bestForecast - winnerForecast >= 15;
+
+  // The turning point: the round where the eventual winner's live odds moved
+  // most in their favour. Reported only when the swing is big enough to have
+  // actually felt like something.
+  let turningPoint: BattleResult["turningPoint"] = null;
+  if (winnerIndex >= 0 && oddsByRound.length > 1) {
+    // Swings are measured between rounds, never from the pre-battle forecast.
+    // The forecast is a flat prior; the first round always moves a long way
+    // from it, and calling that a turning point made every single battle have
+    // one — which is the same as no battle having one.
+    let prev = oddsByRound[0].odds[winnerIndex] ?? winnerForecast;
+    let best = { round: 0, from: 0, to: 0, delta: 0 };
+    for (const entry of oddsByRound.slice(1)) {
+      const now = entry.odds[winnerIndex] ?? prev;
+      const delta = now - prev;
+      if (delta > best.delta) best = { round: entry.round, from: prev, to: now, delta };
+      prev = now;
+    }
+    // A real turning point is a comeback: the winner has to have been behind
+    // and pulled ahead, or made a jump nobody could miss.
+    const cameFromBehind = best.from < 50 && best.to >= 50;
+    if (best.delta >= 12 && (cameFromBehind || best.delta >= 20)) {
+      const phase = phaseOfRound(best.round, round);
+      turningPoint = {
+        round: best.round,
+        phase: phase.label,
+        from: Math.round(best.from),
+        to: Math.round(best.to),
+        text: `Round ${best.round} turned it: ${winnerName} went from ${Math.round(
+          best.from,
+        )}% to ${Math.round(best.to)}%.`,
+      };
+    }
+  }
+
+  // Name the phases now that the length of the fight is known, and mark the
+  // round that swung it.
+  for (const entry of log) {
+    if (entry.kind !== "ROUND_START") continue;
+    const phase = phaseOfRound(entry.round, round);
+    entry.kind = "PHASE";
+    entry.text = `${phase.label.toUpperCase()} · ROUND ${entry.round}`;
+  }
+  if (turningPoint) {
+    const at = log.findIndex(
+      (e) => e.kind === "PHASE" && e.round === turningPoint!.round,
+    );
+    const marker: BattleLogEntry = {
+      round: turningPoint.round,
+      atMs: 0,
+      kind: "TURNING_POINT",
+      text: turningPoint.text,
+      actorTeamId: winnerPlayerId,
+    };
+    if (at >= 0) log.splice(at + 1, 0, marker);
+    else log.push(marker);
+  }
 
   log.push({
     round,
@@ -546,6 +663,33 @@ export function simulateBattle(input: SimulateInput): BattleResult {
     (a, b) => b.performance - a.performance,
   )[0];
 
+  /**
+   * How far past expectation the MVP played.
+   *
+   * Expectation is their share of their own team's combat value — the squad
+   * paid for a certain slice of the damage from this character, and this is
+   * whether they delivered it. A flat "most damage" MVP always crowns the
+   * biggest name on the team; this can crown the cheap pick who carried.
+   */
+  let mvp: BattleResult["mvp"] = null;
+  if (mvpEntry) {
+    const teammates = combatants.filter((c) => c.playerId === winnerPlayerId);
+    const teamValue = teammates.reduce((s, c) => s + combatValue(c.axes), 0);
+    const mine = teammates.find((c) => c.characterId === mvpEntry.characterId);
+    const teamDamage = winnersResults.reduce((s, r) => s + r.damageDealt, 0);
+
+    const expected = teamValue > 0 && mine ? combatValue(mine.axes) / teamValue : 0;
+    const actual = teamDamage > 0 ? mvpEntry.damageDealt / teamDamage : 0;
+
+    mvp = {
+      playerId: mvpEntry.playerId,
+      characterId: mvpEntry.characterId,
+      expected: Math.round(expected * 1000) / 10,
+      actual: Math.round(actual * 1000) / 10,
+      performance: expected > 0 ? Math.round((actual / expected) * 100) : 100,
+    };
+  }
+
   const byPerf = [...results].sort((a, b) => b.performance - a.performance);
   const byValue = [...results].sort((a, b) => b.valueScore - a.valueScore);
   // "Surprise" = beat what the price tag suggested by the widest margin.
@@ -563,9 +707,9 @@ export function simulateBattle(input: SimulateInput): BattleResult {
     teams: teamStats,
     combatants: results,
     winnerPlayerId,
-    mvp: mvpEntry
-      ? { playerId: mvpEntry.playerId, characterId: mvpEntry.characterId }
-      : null,
+    upset,
+    turningPoint,
+    mvp,
     awards: {
       bestPerformer: byPerf[0] ?? null,
       biggestSurprise: bySurprise[0] ?? null,

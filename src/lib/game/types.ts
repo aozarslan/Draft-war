@@ -206,11 +206,13 @@ export interface BattleLogEntry {
   atMs: number;
   kind:
     | "ROUND_START"
+    | "PHASE"
     | "ATTACK"
     | "CRIT"
     | "SPECIAL"
     | "BLOCK"
     | "ELIMINATION"
+    | "TURNING_POINT"
     | "END";
   text: string;
   actorId?: string;
@@ -261,7 +263,29 @@ export interface BattleResult {
   teams: TeamResult[];
   combatants: CombatantResult[];
   winnerPlayerId: string;
-  mvp: { playerId: string; characterId: string } | null;
+  /** True when the team the forecast liked least came out on top. */
+  upset: boolean;
+  /**
+   * The round where the eventual winner's live odds moved most, and by how
+   * much. Null when the battle never really swung.
+   */
+  turningPoint: {
+    round: number;
+    phase: string;
+    from: number;
+    to: number;
+    text: string;
+  } | null;
+  mvp: {
+    playerId: string;
+    characterId: string;
+    /** Share of the team's damage the forecast expected from this character. */
+    expected: number;
+    /** Share it actually delivered. */
+    actual: number;
+    /** actual / expected, as a percentage. 139 means "139% of expectation". */
+    performance: number;
+  } | null;
   awards: {
     bestPerformer: CombatantResult | null;
     biggestSurprise: CombatantResult | null;

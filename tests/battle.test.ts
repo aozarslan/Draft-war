@@ -390,7 +390,10 @@ describe("simulation", () => {
 
   it("builds a playable cinematic with a monotonic timeline", () => {
     const result = run("seed-2");
-    expect(result.log[0].kind).toBe("ROUND_START");
+    // Round markers are renamed to their phase once the battle's length is
+    // known, so the first entry opens the fight rather than merely counting it.
+    expect(result.log[0].kind).toBe("PHASE");
+    expect(result.log[0].text).toContain("OPENING");
     expect(result.log.at(-1)?.kind).toBe("END");
     expect(result.durationMs).toBeGreaterThan(3000);
     expect(result.durationMs).toBeLessThan(60_000);
@@ -435,5 +438,119 @@ describe("simulation", () => {
     });
     expect(rating).toBeGreaterThan(300);
     expect(rating).toBeLessThan(600);
+  });
+});
+
+describe("V4 battle: phases, turning point, MVP performance, upset", () => {
+  const run = (seed: string) =>
+    simulateBattle({
+      teams: [teamA, teamB],
+      map,
+      event: neutralEvent,
+      charactersById: CHARACTERS_BY_ID,
+      seed,
+      categoryIds: ["marvel"],
+      bands: BANDS,
+    });
+
+  it("names every round marker after a phase of the fight", () => {
+    const result = run("phase-seed");
+    const markers = result.log.filter((e) => e.kind === "PHASE");
+    expect(markers.length).toBeGreaterThan(0);
+    // First marker opens the battle, last one closes it.
+    expect(markers[0].text).toContain("OPENING");
+    const labels = markers.map((m) => m.text.split(" ·")[0]);
+    expect(new Set(labels).size).toBeGreaterThan(1);
+  });
+
+  it("reports the MVP as a share of expectation, not raw damage", () => {
+    const result = run("mvp-seed");
+    expect(result.mvp).not.toBeNull();
+    const mvp = result.mvp!;
+    expect(mvp.expected).toBeGreaterThan(0);
+    expect(mvp.actual).toBeGreaterThanOrEqual(0);
+    // The percentage really is the ratio of the two.
+    expect(mvp.performance).toBe(Math.round((mvp.actual / mvp.expected) * 100));
+  });
+
+  it("only calls it an upset when the least-fancied team wins", () => {
+    // Sweep seeds and check the flag never contradicts the forecast.
+    for (let i = 0; i < 40; i++) {
+      const result = run(`upset-${i}`);
+      const winner = result.teams.find((t) => t.playerId === result.winnerPlayerId)!;
+      const lowest = Math.min(...result.teams.map((t) => t.winProbability));
+      const highest = Math.max(...result.teams.map((t) => t.winProbability));
+      if (result.upset) {
+        expect(winner.winProbability).toBe(lowest);
+        expect(winner.winProbability).toBeLessThan(highest);
+      }
+    }
+  });
+
+  it("puts the turning point inside the battle it describes", () => {
+    let found = 0;
+    for (let i = 0; i < 40; i++) {
+      const result = run(`turn-${i}`);
+      if (!result.turningPoint) continue;
+      found++;
+      const rounds = result.log.map((e) => e.round);
+      expect(result.turningPoint.round).toBeGreaterThan(0);
+      expect(result.turningPoint.round).toBeLessThanOrEqual(Math.max(...rounds));
+      // It swung towards the winner, and the marker is in the log.
+      expect(result.turningPoint.to).toBeGreaterThan(result.turningPoint.from);
+      expect(result.log.some((e) => e.kind === "TURNING_POINT")).toBe(true);
+    }
+    // Not every battle swings, but across forty some must.
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it("makes an upset rare enough to mean something and common enough to see", () => {
+    // NB: winProbability is a percentage, not a fraction. An earlier cut of
+    // this feature used 0.15 as the threshold on a 0-100 scale, which made
+    // every close battle an "upset" and every battle have a "turning point".
+    // Varied matchups, not the fixed pairing above: whether an underdog exists
+    // at all depends on the squads, and one pairing cannot answer "how often".
+    const pool = CHARACTERS.filter((c) => c.categoryId === "marvel");
+    const rng = createRng("upset-matchups");
+    let upsets = 0;
+    let turns = 0;
+    let n = 0;
+    for (let m = 0; m < 30; m++) {
+      const shuffled = [...pool];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = rng.int(0, i);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const squads = [shuffled.slice(0, 5), shuffled.slice(5, 10)];
+      for (let i = 0; i < 10; i++) {
+        const r = simulateBattle({
+          teams: squads.map((chars, k) => ({
+            playerId: `P${k}`,
+            nickname: `P${k}`,
+            characters: chars.map((c) => ({ characterId: c.id, price: 10 })),
+          })),
+          map,
+          event: neutralEvent,
+          charactersById: CHARACTERS_BY_ID,
+          seed: `rate-${m}-${i}`,
+          categoryIds: ["marvel"],
+          bands: BANDS,
+        });
+        if (r.upset) upsets++;
+        if (r.turningPoint) turns++;
+        n++;
+      }
+    }
+    expect(upsets / n).toBeGreaterThan(0.02);
+    expect(upsets / n).toBeLessThan(0.4);
+    // A comeback that happens in every battle is not a comeback.
+    expect(turns / n).toBeLessThan(0.6);
+  });
+
+  it("keeps the timeline monotonic after phases and markers are inserted", () => {
+    for (const seed of ["a", "b", "c"]) {
+      const times = run(`mono-${seed}`).log.map((e) => e.atMs);
+      expect([...times].sort((x, y) => x - y)).toEqual(times);
+    }
   });
 });

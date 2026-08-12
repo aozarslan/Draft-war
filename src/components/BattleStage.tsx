@@ -10,6 +10,8 @@ import { Panel, SectionTitle } from "./ui";
 
 const ICONS: Record<BattleLogEntry["kind"], string> = {
   ROUND_START: "🔔",
+  PHASE: "🔔",
+  TURNING_POINT: "🔥",
   ATTACK: "⚔️",
   CRIT: "💥",
   SPECIAL: "⚡",
