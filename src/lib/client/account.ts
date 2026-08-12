@@ -293,6 +293,28 @@ export async function markNotificationsRead(ids?: string[]): Promise<void> {
   });
 }
 
+export interface LiveEvent {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  icon: string;
+  colour: string;
+  category_ids: string[];
+  coin_bonus: number;
+  xp_bonus: number;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** The live event, or null. Public — no profile needed. */
+export async function fetchLiveEvent(): Promise<LiveEvent | null> {
+  const res = await fetch("/api/event", { cache: "no-store" });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.ok ? (data.event as LiveEvent | null) : null;
+}
+
 export interface ChallengeProgress {
   id: string;
   scope: "DAILY" | "WEEKLY";

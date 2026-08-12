@@ -6,10 +6,13 @@ import {
   fetchChallenges,
   fetchCoins,
   fetchFriends,
+  fetchLiveEvent,
   fetchProfile,
   getAccount,
+  type LiveEvent,
   type ProfilePayload,
 } from "@/lib/client/account";
+import { getCategory } from "@/lib/game/categories";
 import { formatCoins, levelFromXp, rankFromPoints } from "@/lib/game/progression";
 import { bannerGradient } from "@/lib/game/items";
 import { Avatar, LevelBar, TitleTag } from "./ProfileBadge";
@@ -139,5 +142,66 @@ export function HubSummary() {
         Level {level.level} · {level.toNext} XP to level {level.level + 1}
       </p>
     </div>
+  );
+}
+
+/**
+ * The live event, if one is running.
+ *
+ * Shown to everybody, signed in or not — an event nobody can see is not an
+ * event, and a guest deciding whether to sign up is exactly who a "this week
+ * pays more" banner is for.
+ *
+ * It says what the bonus applies to, because a bonus you cannot aim at is just
+ * noise.
+ */
+export function EventBanner() {
+  const [event, setEvent] = useState<LiveEvent | null>(null);
+
+  useEffect(() => {
+    void fetchLiveEvent().then(setEvent);
+  }, []);
+
+  if (!event) return null;
+
+  const categories = (event.category_ids ?? []).map(getCategory);
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((new Date(event.ends_at).getTime() - Date.now()) / 86_400_000),
+  );
+
+  return (
+    <Link
+      href="/#play"
+      className="block overflow-hidden rounded-2xl border transition active:scale-[0.99]"
+      style={{
+        borderColor: `${event.colour}55`,
+        background: `linear-gradient(120deg, ${event.colour}22, transparent)`,
+      }}
+    >
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className="text-2xl">{event.icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-black" style={{ color: event.colour }}>
+            {event.name}
+          </span>
+          <span className="block text-[11px] text-white/50">{event.tagline}</span>
+          {categories.length > 0 ? (
+            <span className="mt-0.5 block text-[10px] text-white/35">
+              +{event.coin_bonus}% coins and XP on{" "}
+              {categories.map((c) => c.name).join(", ")}
+            </span>
+          ) : null}
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block text-sm font-black tabular-nums" style={{ color: event.colour }}>
+            {daysLeft}
+          </span>
+          <span className="block text-[9px] font-bold uppercase tracking-wider text-white/35">
+            {daysLeft === 1 ? "day left" : "days left"}
+          </span>
+        </span>
+      </div>
+    </Link>
   );
 }

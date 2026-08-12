@@ -8,7 +8,7 @@ import { lastNickname, setSession } from "@/lib/client/session";
 import { getAccount } from "@/lib/client/account";
 import { play } from "@/lib/client/sound";
 import { SiteNav } from "@/components/SiteNav";
-import { HubSummary } from "@/components/HubSummary";
+import { EventBanner, HubSummary } from "@/components/HubSummary";
 import { Onboarding } from "@/components/Onboarding";
 import { CATEGORIES } from "@/lib/game/categories";
 import type { CategoryMode } from "@/lib/game/types";
@@ -124,6 +124,7 @@ function Landing() {
         {/* Signed in, this is a hub and the card carries the identity; signed
             out it is a landing page and the name has to do that job. The two
             never both shout. */}
+        <EventBanner />
         <HubSummary />
 
         <header className={`text-center ${signedIn ? "sr-only" : ""}`}>
