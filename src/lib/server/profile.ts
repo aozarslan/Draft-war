@@ -133,117 +133,109 @@ export async function awardMatchRewards(
   if (withProfile.length === 0) return [];
 
   const playerCount = result.teams.length;
-  const lines: RewardLine[] = [];
 
-  for (const seat of withProfile) {
-    const team = result.teams.find((t) => t.playerId === seat.id);
-    if (!team) continue;
+  // One call per player, and the players in parallel. Each call is one
+  // transaction on the database side, so a five-player settlement is one round
+  // trip deep rather than twenty — the players are waiting on this.
+  const settled = await Promise.all(
+    withProfile.map(async (seat): Promise<RewardLine | null> => {
+      const team = result.teams.find((t) => t.playerId === seat.id);
+      if (!team) return null;
 
-    const mine = result.combatants.filter((c) => c.playerId === seat.id);
-    const isMvp = result.mvp?.playerId === seat.id;
-    const creditsSpent = mine.reduce((sum, c) => sum + c.price, 0);
-    const priciest = [...mine].sort((a, b) => b.price - a.price)[0];
+      const mine = result.combatants.filter((c) => c.playerId === seat.id);
+      const isMvp = result.mvp?.playerId === seat.id;
+      const creditsSpent = mine.reduce((sum, c) => sum + c.price, 0);
+      const priciest = [...mine].sort((a, b) => b.price - a.price)[0];
 
-    const breakdown = xpForMatch({
-      rank: team.rank,
-      playerCount,
-      isMvp,
-      charactersDrafted: mine.length,
-      ranked,
-    });
-    const xp = totalXp(breakdown);
-    const coinLines = coinsForMatch({
-      rank: team.rank,
-      playerCount,
-      isMvp,
-      charactersDrafted: mine.length,
-      ranked,
-    });
-    const coins = totalCoins(coinLines);
-    const delta = ranked ? rankDelta(team.rank, playerCount) : 0;
+      const breakdown = xpForMatch({
+        rank: team.rank,
+        playerCount,
+        isMvp,
+        charactersDrafted: mine.length,
+        ranked,
+      });
+      const xp = totalXp(breakdown);
+      const coinLines = coinsForMatch({
+        rank: team.rank,
+        playerCount,
+        isMvp,
+        charactersDrafted: mine.length,
+        ranked,
+      });
+      const coins = totalCoins(coinLines);
+      const delta = ranked ? rankDelta(team.rank, playerCount) : 0;
 
-    const summary = {
-      roomCode,
-      placement: team.rank,
-      playerCount,
-      isMvp,
-      mvpCharacter: isMvp ? result.mvp?.characterId : null,
-      charactersDrafted: mine.length,
-      creditsSpent,
-      mostExpensivePrice: priciest?.price ?? 0,
-      mostExpensiveName: priciest?.characterId ?? null,
-      teamRating: team.teamRating,
-      categoryIds: result.categoryIds,
-      mapId: result.mapId,
-      eventId: result.eventId,
-      roster: mine.map((c) => ({ characterId: c.characterId, price: c.price })),
-    };
-
-    // Assign today's challenges *before* this match is banked. Assignment
-    // snapshots the baseline, so doing it afterwards would silently exclude
-    // the match that just finished — and a player who never opens the profile
-    // page would have their first match of the day never count.
-    await rpcOrThrow("dw_sync_challenges", { p_profile_id: seat.profile_id });
-
-    const awarded = await rpcOrThrow("dw_award_match", {
-      p_game_id: gameId,
-      p_profile_id: seat.profile_id,
-      p_xp: xp,
-      p_rank_delta: delta,
-      p_ranked: ranked,
-      p_summary: summary,
-    });
-
-    // Coins ride on their own ledger, so they are paid after the match row
-    // exists and are idempotent independently of the XP award.
-    const paid = await rpcOrThrow("dw_award_match_coins", {
-      p_game_id: gameId,
-      p_profile_id: seat.profile_id,
-      p_coins: coins,
-      p_detail: {
+      const summary = {
         roomCode,
         placement: team.rank,
         playerCount,
         isMvp,
-        lines: coinLines,
-      },
-    });
+        mvpCharacter: isMvp ? result.mvp?.characterId : null,
+        charactersDrafted: mine.length,
+        creditsSpent,
+        mostExpensivePrice: priciest?.price ?? 0,
+        mostExpensiveName: priciest?.characterId ?? null,
+        teamRating: team.teamRating,
+        categoryIds: result.categoryIds,
+        mapId: result.mapId,
+        eventId: result.eventId,
+        roster: mine.map((c) => ({ characterId: c.characterId, price: c.price })),
+      };
 
-    // Achievements are evaluated last, so a match that took somebody to their
-    // tenth win pays the match first and the medal second.
-    const evaluated = await rpcOrThrow("dw_evaluate_achievements", {
-      p_profile_id: seat.profile_id,
-    });
+      // dw_settle_match runs the same four steps in the same order — sync
+      // challenges, award the match, pay the coins, evaluate achievements —
+      // inside one transaction. Each remains independently idempotent, so a
+      // battle stored twice still pays once.
+      const settlement = await rpcOrThrow("dw_settle_match", {
+        p_game_id: gameId,
+        p_profile_id: seat.profile_id,
+        p_xp: xp,
+        p_rank_delta: delta,
+        p_ranked: ranked,
+        p_summary: summary,
+        p_coins: coins,
+        p_coin_detail: {
+          roomCode,
+          placement: team.rank,
+          playerCount,
+          isMvp,
+          lines: coinLines,
+        },
+      });
 
-    // A repeat call returns early; report the line without pretending it paid.
-    const alreadyAwarded = Boolean(awarded.alreadyAwarded);
-    const coinsPaid = Number(paid.amount ?? 0);
-    const totalAfter = Number(awarded.totalXp ?? 0);
-    const levelAfter = Number(awarded.level ?? 1);
-    const levelBefore = levelFromXp(Math.max(0, totalAfter - xp)).level;
-    const rpBefore = Number(awarded.rankPointsBefore ?? 0);
-    const rpAfter = Number(awarded.rankPointsAfter ?? rpBefore);
+      const awarded = (settlement.match ?? {}) as Record<string, unknown>;
+      const paid = (settlement.coins ?? {}) as Record<string, unknown>;
 
-    lines.push({
-      profileId: seat.profile_id!,
-      username: seat.nickname,
-      placement: team.rank,
-      xp: alreadyAwarded ? 0 : xp,
-      breakdown: alreadyAwarded ? [] : breakdown,
-      coins: coinsPaid,
-      coinBreakdown: coinsPaid > 0 ? coinLines : [],
-      coinBalance: Number(paid.balance ?? 0),
-      unlocked: (evaluated.unlocked ?? []) as UnlockedAchievement[],
-      rankDelta: alreadyAwarded ? 0 : delta,
-      levelBefore,
-      levelAfter,
-      rankBefore: rankFromPoints(rpBefore).label,
-      rankAfter: rankFromPoints(rpAfter).label,
-      levelledUp: !alreadyAwarded && levelAfter > levelBefore,
-    });
-  }
+      // A repeat call returns early; report the line without pretending it paid.
+      const alreadyAwarded = Boolean(awarded.alreadyAwarded);
+      const coinsPaid = Number(paid.amount ?? 0);
+      const totalAfter = Number(awarded.totalXp ?? 0);
+      const levelAfter = Number(awarded.level ?? 1);
+      const levelBefore = levelFromXp(Math.max(0, totalAfter - xp)).level;
+      const rpBefore = Number(awarded.rankPointsBefore ?? 0);
+      const rpAfter = Number(awarded.rankPointsAfter ?? rpBefore);
 
-  return lines;
+      return {
+        profileId: seat.profile_id!,
+        username: seat.nickname,
+        placement: team.rank,
+        xp: alreadyAwarded ? 0 : xp,
+        breakdown: alreadyAwarded ? [] : breakdown,
+        coins: coinsPaid,
+        coinBreakdown: coinsPaid > 0 ? coinLines : [],
+        coinBalance: Number(paid.balance ?? 0),
+        unlocked: (settlement.unlocked ?? []) as UnlockedAchievement[],
+        rankDelta: alreadyAwarded ? 0 : delta,
+        levelBefore,
+        levelAfter,
+        rankBefore: rankFromPoints(rpBefore).label,
+        rankAfter: rankFromPoints(rpAfter).label,
+        levelledUp: !alreadyAwarded && levelAfter > levelBefore,
+      };
+    }),
+  );
+
+  return settled.filter((line): line is RewardLine => line !== null);
 }
 
 /** Friends, plus requests in both directions. */

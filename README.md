@@ -266,6 +266,23 @@ a bid, and a test asserts that no payload ever grows one. Ownership is a row in
 `profile_items`; `dw_equip_item` checks it before writing the slot, so the worst
 a forged request can do is ask to wear something it does not own and be told no.
 
+**Analytics adds no event table and no tracking calls.** Everything worth
+knowing is already recorded as a consequence of playing: rooms carry their
+creation time, games carry their categories and status, bids carry every raise,
+match_history carries every finish, the coin ledger carries every purchase. A
+parallel event stream describing the same things would be a second source of
+truth that can disagree with the first — and the first is the one the game runs
+on. `dw_analytics` is therefore a derived read model: it cannot drift, and
+looking at the dashboard costs the players nothing. `/admin/analytics` is
+behind the same `DRAFT_WAR_DEV_KEY` gate as the importer.
+
+**Settling a match is one call per player, made in parallel.** It used to be
+four sequential round trips each — twenty for a five-player game, on the tick
+that stores the battle. `dw_settle_match` runs the same four steps in the same
+order inside one transaction, so the depth is one. It is also a correctness
+improvement: a crash midway used to be able to leave a match that had paid XP
+but no coins.
+
 **The hub is two shapes of one layout.** On a laptop the links live in the top
 bar; below `sm` they move to a bottom bar within thumb reach and the top bar
 keeps only what has to be glanceable — who you are, what you have, and whether
@@ -364,6 +381,8 @@ Open **SQL Editor** in the Supabase dashboard and run these two files, in order:
     (generated from `src/lib/game/challenges.ts` by `npm run seed:challenges`)
 16. `supabase/migrations/0016_friends.sql` — friends, room invites and the
     notification inbox
+17. `supabase/migrations/0017_analytics.sql` — the analytics read model
+18. `supabase/migrations/0018_settle_match.sql` — one-call match settlement
 
 Run them in order. **Upgrading an existing V1 database?** Run 0003 onwards — they are additive, and the twenty V1 characters are migrated into the
 new shape and retired from drafting rather than deleted, so finished games keep
