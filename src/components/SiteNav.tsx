@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/leaderboard", label: "Ranks" },
   { href: "/shop", label: "Shop" },
   { href: "/achievements", label: "Medals" },
+  { href: "/collection", label: "Collection" },
   { href: "/friends", label: "Friends" },
 ];
 

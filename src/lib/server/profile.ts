@@ -238,6 +238,18 @@ export async function awardMatchRewards(
   return settled.filter((line): line is RewardLine => line !== null);
 }
 
+/** Mastery per character, and the collection per category. */
+export async function getCollection(profileId: string) {
+  const [mastery, collection] = await Promise.all([
+    rpc("dw_character_mastery", { p_profile_id: profileId, p_limit: 200 }),
+    rpc("dw_collection", { p_profile_id: profileId }),
+  ]);
+  if (mastery.ok === false || collection.ok === false) {
+    throw new EngineError("COLLECTION_ERROR", "Could not read the collection.", 500);
+  }
+  return { ...collection, ok: true, characters: mastery.characters };
+}
+
 /** A rivalry record between two profiles, derived from match history. */
 export async function getHeadToHead(profileId: string, rivalId: string) {
   const data = await rpc("dw_head_to_head", {

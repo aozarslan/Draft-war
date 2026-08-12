@@ -8,7 +8,7 @@ import { fetchNotifications, getAccount } from "@/lib/client/account";
 const TABS = [
   { href: "/", label: "Play", icon: "⚔️" },
   { href: "/shop", label: "Shop", icon: "🛒" },
-  { href: "/achievements", label: "Medals", icon: "🏅" },
+  { href: "/collection", label: "Collection", icon: "🗂" },
   { href: "/friends", label: "Friends", icon: "👥" },
   { href: "/profile", label: "You", icon: "🙂" },
 ];
