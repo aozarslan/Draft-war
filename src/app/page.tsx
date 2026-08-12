@@ -9,6 +9,7 @@ import { getAccount } from "@/lib/client/account";
 import { play } from "@/lib/client/sound";
 import { SiteNav } from "@/components/SiteNav";
 import { HubSummary } from "@/components/HubSummary";
+import { Onboarding } from "@/components/Onboarding";
 import { CATEGORIES } from "@/lib/game/categories";
 import type { CategoryMode } from "@/lib/game/types";
 
@@ -116,6 +117,9 @@ function Landing() {
   return (
     <>
       <SiteNav />
+      {/* Shown once, to somebody who has never been here. Opens itself after
+          mount rather than during render — the server has no localStorage. */}
+      <Onboarding />
       <main className="mx-auto flex w-full max-w-xl flex-col gap-6 px-5 py-8">
         {/* Signed in, this is a hub and the card carries the identity; signed
             out it is a landing page and the name has to do that job. The two
