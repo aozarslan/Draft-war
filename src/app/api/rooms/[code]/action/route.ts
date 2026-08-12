@@ -13,6 +13,19 @@ import {
 import { authenticate, errorResponse, isNextResponse } from "@/lib/server/session";
 import { CATEGORIES } from "@/lib/game/categories";
 
+/**
+ * Sanitises the client's action id.
+ *
+ * It is only ever used as an idempotency key, never as an identity: the player
+ * is authenticated separately, so the worst a forged id can do is collide with
+ * the sender's own earlier action and return that result. Length is capped
+ * because it becomes a primary key.
+ */
+function actionId(raw: unknown): string | null {
+  const id = typeof raw === "string" ? raw.trim() : "";
+  return /^[A-Za-z0-9_-]{8,64}$/.test(id) ? id : null;
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -29,8 +42,8 @@ type Action =
   | { type: "PICK_CATEGORY"; categoryIds: string[] }
   | { type: "SET_MAX_PLAYERS"; maxPlayers: number }
   | { type: "VOTE_CATEGORY"; categoryId: string }
-  | { type: "BID"; auctionId: string; amount: number }
-  | { type: "PASS"; auctionId: string }
+  | { type: "BID"; auctionId: string; amount: number; actionId?: string }
+  | { type: "PASS"; auctionId: string; actionId?: string }
   | { type: "CHAT"; body: string }
   | { type: "REACTION"; body: string }
   | { type: "VOTE_MAP"; mapId: string }
@@ -132,10 +145,14 @@ export async function POST(
         if (!Number.isInteger(amount) || amount < 1) {
           return errorResponse("BID_TOO_LOW", "That is not a valid bid.");
         }
+        // The action id makes a retry safe: a double tap, or the same POST
+        // replayed after a flaky mobile connection, gets the first answer back
+        // instead of placing a second bid.
         const result = await rpcOrThrow("dw_place_bid", {
           p_player_id: playerId,
           p_auction_id: action.auctionId,
           p_amount: amount,
+          p_action_id: actionId(action.actionId),
         });
         return NextResponse.json(result);
       }
@@ -144,6 +161,7 @@ export async function POST(
         const result = await rpcOrThrow("dw_pass_auction", {
           p_player_id: playerId,
           p_auction_id: action.auctionId,
+          p_action_id: actionId(action.actionId),
         });
         return NextResponse.json(result);
       }

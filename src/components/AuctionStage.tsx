@@ -7,6 +7,7 @@ import { maxAllowedBid, minAllowedBid } from "@/lib/game/auction";
 import { getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
 import { play } from "@/lib/client/sound";
+import { newActionId } from "@/lib/client/api";
 import { CharacterImage, ImageCredit } from "./CharacterImage";
 import { CharacterModal } from "./CharacterModal";
 import { PlayerRail } from "./PlayerRail";
@@ -86,18 +87,21 @@ export function AuctionStage({
     Boolean(me) && !iPassed && !iLead && !rosterFull && !revealing &&
     amount >= limits.min && amount <= limits.max;
 
+  // One id per press. If the send fails and something retries it, the server
+  // recognises the same intention and answers with the first result rather
+  // than bidding twice.
   async function bid(amount: number) {
     if (!canBid(amount)) return;
     setPending(true);
     play("click");
-    await act({ type: "BID", auctionId: auction!.id, amount });
+    await act({ type: "BID", auctionId: auction!.id, amount, actionId: newActionId() });
     setPending(false);
   }
 
   async function pass() {
     setPending(true);
     play("click");
-    await act({ type: "PASS", auctionId: auction!.id });
+    await act({ type: "PASS", auctionId: auction!.id, actionId: newActionId() });
     setPending(false);
   }
 

@@ -90,13 +90,23 @@ export type ClientAction =
   | { type: "PICK_CATEGORY"; categoryIds: string[] }
   | { type: "SET_MAX_PLAYERS"; maxPlayers: number }
   | { type: "VOTE_CATEGORY"; categoryId: string }
-  | { type: "BID"; auctionId: string; amount: number }
-  | { type: "PASS"; auctionId: string }
+  | { type: "BID"; auctionId: string; amount: number; actionId?: string }
+  | { type: "PASS"; auctionId: string; actionId?: string }
   | { type: "CHAT"; body: string }
   | { type: "REACTION"; body: string }
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
   | { type: "PLAY_AGAIN" };
+
+/**
+ * A fresh id for one player intention.
+ *
+ * Generated per press rather than per request, so the retry of a failed send
+ * carries the same id and the server can recognise it as the same intention.
+ */
+export function newActionId(): string {
+  return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export async function sendAction(
   code: string,
