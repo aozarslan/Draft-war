@@ -64,6 +64,15 @@ export async function authenticate(
     return errorResponse("NO_SESSION", "Session expired. Please join again.", 401);
   }
 
+  // A player id is a uuid. Checking the shape here rather than letting the
+  // database reject it turns a DB_ERROR — which reads as "our fault" and tells
+  // the caller nothing — into the honest answer: whatever you presented, it is
+  // not a session. Reached in practice by a spectator's watcher id, which is
+  // deliberately not a uuid.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(playerId)) {
+    return errorResponse("NO_SESSION", "Session expired. Please join again.", 401);
+  }
+
   const db = supabaseAdmin();
 
   // Three plain lookups rather than one embedded query.

@@ -115,6 +115,17 @@ export function RoomClient({ code }: { code: string }) {
         <span className="rounded-lg bg-white/5 px-2 py-1 text-[11px] font-bold text-white/60">
           {PHASE_LABEL[phase] ?? phase}
         </span>
+        {/* Somebody is watching. Shown only when true — a permanent "0
+            watching" is noise, and knowing you have an audience is the whole
+            point of the count. */}
+        {snapshot.room.watching > 0 ? (
+          <span
+            className="rounded-lg border border-fuchsia-400/30 bg-fuchsia-400/10 px-2 py-1 text-[11px] font-black text-fuchsia-300"
+            title="People watching without a seat"
+          >
+            👁 {snapshot.room.watching}
+          </span>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <ConnectionPill state={connection} />
           <button

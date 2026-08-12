@@ -27,6 +27,8 @@ export interface Snapshot {
     config: RoomConfig;
     stateVersion: number;
     gamesPlayed: number;
+    /** How many people are watching without a seat. */
+    watching: number;
     categoryIds: string[];
     categoryCandidates: string[] | null;
     categoryDeadline: string | null;

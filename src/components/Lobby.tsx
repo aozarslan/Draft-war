@@ -34,6 +34,11 @@ export function Lobby({ store }: { store: RoomStore }) {
 
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/room/${room.code}` : "";
+  // For the friend who wants to see it but not play, or who arrived after the
+  // room filled up. Watching takes no seat.
+  const watchUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/watch/${room.code}` : "";
+  const [copiedWatch, setCopiedWatch] = useState(false);
   const everyoneReady = players.length > 0 && players.every((p) => p.isReady);
   const enoughPlayers = players.length >= room.config.minPlayers;
   const isFull = players.length >= room.config.maxPlayers;
@@ -100,6 +105,18 @@ export function Lobby({ store }: { store: RoomStore }) {
             ) : null}
           </div>
           <p className="mt-3 break-all text-[11px] text-white/30">{shareUrl}</p>
+
+          <button
+            className="btn mt-2 w-full !min-h-9 !text-[11px]"
+            onClick={() => {
+              void navigator.clipboard.writeText(watchUrl).then(() => {
+                setCopiedWatch(true);
+                setTimeout(() => setCopiedWatch(false), 1800);
+              });
+            }}
+          >
+            {copiedWatch ? "✅ Watch link copied" : "📺 Copy watch link · no seat needed"}
+          </button>
         </div>
       </Panel>
 
