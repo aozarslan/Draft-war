@@ -33,6 +33,7 @@ import { TIER_STYLE, type AchievementTier } from "@/lib/game/achievements";
 import { ladderView } from "@/lib/game/challenges";
 import { getCategory } from "@/lib/game/categories";
 import { Avatar, CoinPill, LevelBar, TitleTag } from "@/components/ProfileBadge";
+import { RecoverForm, RecoveryPanel } from "@/components/RecoveryPanel";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
 import { play } from "@/lib/client/sound";
 
@@ -81,6 +82,9 @@ export function ProfileClient() {
           <LevelBar xp={data.profile.xp} />
         </div>
       </Panel>
+
+      {/* ---- Getting back in ---- */}
+      <RecoveryPanel />
 
       {/* ---- Challenges ---- */}
       <Challenges
@@ -844,6 +848,7 @@ function ClaimProfile({ onDone }: { onDone: (p: ProfilePayload) => void }) {
       <Link href="/#play" className="btn btn-ghost w-full !text-[11px]">
         Keep playing as a guest
       </Link>
+      <RecoverForm onDone={() => void fetchProfile().then((p) => p && onDone(p))} />
     </form>
   );
 }

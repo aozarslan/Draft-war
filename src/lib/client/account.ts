@@ -293,6 +293,45 @@ export async function markNotificationsRead(ids?: string[]): Promise<void> {
   });
 }
 
+/** Asks the server for a recovery code. Shown once, never re-issued. */
+export async function issueRecoveryCode(): Promise<string> {
+  const res = await fetch("/api/profile/recovery", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...accountHeaders() },
+    body: JSON.stringify({ action: "ISSUE" }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.message ?? "Could not create a code.");
+  return data.recoveryCode as string;
+}
+
+export async function hasRecoveryCode(): Promise<boolean> {
+  if (!getAccount()) return false;
+  const res = await fetch("/api/profile/recovery", { headers: accountHeaders(), cache: "no-store" });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => null);
+  return Boolean(data?.hasRecovery);
+}
+
+/** Signs back in on this device with a username and recovery code. */
+export async function recoverAccount(username: string, code: string): Promise<AccountSession> {
+  const res = await fetch("/api/profile/recovery", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "USE", username, code }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.message ?? "That name and code do not match.");
+  const session: AccountSession = {
+    profileId: data.profileId,
+    token: data.token,
+    username: data.username,
+    avatar: data.avatar,
+  };
+  setAccount(session);
+  return session;
+}
+
 export interface LiveEvent {
   id: string;
   slug: string;

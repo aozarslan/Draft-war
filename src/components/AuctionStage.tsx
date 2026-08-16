@@ -8,7 +8,7 @@ import { getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
 import { play } from "@/lib/client/sound";
 import { newActionId } from "@/lib/client/api";
-import { archetypeOf, powerBand } from "@/lib/game/archetypes";
+import { archetypeOf } from "@/lib/game/archetypes";
 import { allAxes } from "@/lib/game/categories";
 import { CharacterImage, ImageCredit } from "./CharacterImage";
 import { CharacterModal } from "./CharacterModal";
@@ -85,15 +85,10 @@ export function AuctionStage({
   const iLead = Boolean(me && auction.highBidderId === me.id);
   const rosterFull = slots <= 0;
 
-  // Hidden power: a band rather than the number, derived from the character and
-  // the game seed so every player in this room sees the same range. Ranked
-  // hides more than casual. The exact value arrives at team review.
-  const band = powerBand(
-    character.id,
-    character.gamePower,
-    store.snapshot?.game?.seed ?? store.snapshot?.room.code ?? "",
-    store.snapshot?.room.config.ranked ? "RANKED" : "CASUAL",
-  );
+  // Power is shown exactly, not as an estimate band. The band was tried and
+  // removed after play-testing: hiding the one number a bid is judged against
+  // made the auction feel arbitrary rather than tense. `powerBand` is still in
+  // archetypes.ts with its tests if a future mode wants it.
   const archetype = archetypeOf(allAxes(category, character.stats));
 
   const canBid = (amount: number) =>
@@ -181,11 +176,11 @@ export function AuctionStage({
           {stage === "power" ? (
             <div className="animate-[pop_0.3s]">
               <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">
-                Power estimate
+                Game power
               </p>
               <p className="headline text-[clamp(3rem,16vw,6rem)] leading-none"
                  style={{ color: category.accent }}>
-                {band.label}
+                {character.gamePower}
               </p>
             </div>
           ) : null}
@@ -236,10 +231,10 @@ export function AuctionStage({
                       className="headline text-3xl leading-none"
                       style={{ color: category.accent }}
                     >
-                      {band.label}
+                      {character.gamePower}
                     </span>
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
-                      Power estimate
+                      Game power
                     </span>
                   </div>
 

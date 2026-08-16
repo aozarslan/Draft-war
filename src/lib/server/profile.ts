@@ -238,6 +238,11 @@ export async function awardMatchRewards(
   return settled.filter((line): line is RewardLine => line !== null);
 }
 
+/** Whether this profile has a recovery code yet. */
+export async function hasRecovery(profileId: string) {
+  return rpc("dw_has_recovery", { p_profile_id: profileId });
+}
+
 /** Every league this profile belongs to. */
 export async function getMyLeagues(profileId: string) {
   const data = await rpc("dw_my_leagues", { p_profile_id: profileId });
