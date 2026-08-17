@@ -26,6 +26,7 @@ import { toReplay } from "@/lib/game/replay";
 import { PLAYER_COLORS } from "@/lib/game/colors";
 import { BattleRenderer } from "@/lib/render/canvas";
 import { VISUAL_ARCHETYPES, artFor, visualArchetypeFor } from "@/lib/render/archetypes";
+import { disambiguate } from "@/lib/render/identity";
 import { ArchetypePreview } from "@/components/dev/ArchetypePreview";
 import { interactionsFor } from "@/lib/render/interactions";
 import type { CharacterArt } from "@/lib/render/assets";
@@ -227,16 +228,29 @@ export default function RendererHarness() {
     };
   }, []);
 
-  const art = useMemo<CharacterArt[]>(
-    () =>
-      CHARACTERS.map((c) => {
-        const resolved = artFor(c, portraits ? (thumbnails[c.id] ?? c.thumbnailUrl) : null);
-        // The sheet always wins over a portrait, so this toggle is the only way
-        // to compare an animated archetype against the artwork it replaces.
-        return sheets ? resolved : { ...resolved, sheet: undefined };
-      }),
-    [portraits, thumbnails, sheets],
-  );
+  const art = useMemo<CharacterArt[]>(() => {
+    const all = CHARACTERS.map((c) => {
+      const resolved = artFor(c, portraits ? (thumbnails[c.id] ?? c.thumbnailUrl) : null);
+      // The sheet always wins over a portrait, so this toggle is the only way
+      // to compare an animated archetype against the artwork it replaces.
+      return sheets ? resolved : { ...resolved, sheet: undefined };
+    });
+
+    // Two characters in *this* battle that resolved to the same look get
+    // separated. Catalogue-wide collisions are tolerable; two identical
+    // creatures standing side by side are exactly what identity is for.
+    if (!replay) return all;
+    const inMatch = replay.combatants.map((c) => c.characterId);
+    const separated = disambiguate(
+      inMatch.map((id) => ({
+        characterId: id,
+        config: all.find((a) => a.characterId === id)!.identity!,
+      })),
+    );
+    return all.map((a) =>
+      separated.has(a.characterId) ? { ...a, identity: separated.get(a.characterId)! } : a,
+    );
+  }, [portraits, thumbnails, sheets, replay]);
 
   // One renderer per replay. It reads the clock we own, so scrubbing is just
   // writing to a ref — the renderer has no opinion about time passing.

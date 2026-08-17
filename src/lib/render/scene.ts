@@ -115,6 +115,15 @@ export interface SceneEffect {
   /** True when the engine reduced this hit — a block still deals damage. */
   blocked?: boolean;
   /**
+   * Who threw it and who took it.
+   *
+   * Carried so the draw layer can look up each side's body plan and draw the
+   * blow the way that anatomy would deliver it. Identifiers only — the scene
+   * itself stays free of any notion of archetypes.
+   */
+  actorId: string | null;
+  targetId: string | null;
+  /**
    * Which row to float this number in, when several land close together.
    *
    * Derived from the replay's own event order rather than from a counter, so
@@ -170,6 +179,24 @@ export interface SceneCinematic {
   intensity: number;
 }
 
+/**
+ * One spark, at this instant.
+ *
+ * Computed rather than simulated: position comes from the event's timestamp,
+ * the spark's index and the elapsed clock, so the same moment always produces
+ * the same sparks. The pool that used to hold these was the last piece of the
+ * renderer that remembered anything, and it was why scrubbing away and back
+ * gave a different picture.
+ */
+export interface SceneParticle {
+  x: number;
+  y: number;
+  size: number;
+  /** 0..1, fading out over the spark's life. */
+  alpha: number;
+  kind: "HIT" | "CRIT" | "SPECIAL" | "DEATH";
+}
+
 export interface Scene {
   elapsedMs: number;
   /** True once playback has run past the replay's own duration. */
@@ -177,6 +204,8 @@ export interface Scene {
   showHealth: boolean;
   combatants: SceneCombatant[];
   effects: SceneEffect[];
+  /** Sparks, derived from the clock. Never accumulated. */
+  particles: SceneParticle[];
   camera: SceneCamera;
   banner: SceneBanner | null;
   cinematic: SceneCinematic | null;
@@ -507,6 +536,7 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
   }
 
   assignNumberSlots(effects);
+  const particles = particlesAt(replay, now);
 
   return {
     elapsedMs: now,
@@ -514,6 +544,7 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     showHealth,
     combatants: combatants.map(strip),
     effects: effects.filter((e) => e.progress >= 0 && e.progress < 1),
+    particles,
     camera,
     banner,
     cinematic,
@@ -525,6 +556,75 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     upset: replay.upset,
   };
 }
+
+/**
+ * Every spark currently in the air.
+ *
+ * A closed-form ballistic path per spark: launch angle and speed come from a
+ * hash of the event index and the spark's own index, and position is that
+ * launch integrated over the spark's age. No state, no pool, no emission — so
+ * `t=12s → t=30s → t=12s` shows exactly the same sparks, which is the last
+ * thing about the renderer that was not a pure function of the clock.
+ */
+function particlesAt(replay: Replay, now: number): SceneParticle[] {
+  const out: SceneParticle[] = [];
+
+  for (let index = 0; index < replay.events.length; index++) {
+    const event = replay.events[index];
+    const age = now - event.atMs;
+    if (age < 0 || age >= PARTICLE_LIFE_MS) continue;
+
+    const burst = BURSTS[event.kind as keyof typeof BURSTS];
+    if (!burst) continue;
+
+    const target = replay.combatants.find((c) => c.characterId === event.targetId);
+    if (!target) continue;
+    const side = replay.teams.find((t) => t.playerId === target.teamId);
+    const { x, y } = placement(
+      target.lane,
+      target.slot,
+      (side?.seat ?? 0) === 0 ? 0 : 1,
+    );
+
+    const seconds = age / 1000;
+    for (let i = 0; i < burst.count; i++) {
+      // Deterministic launch, from the event and the spark, never from a clock
+      // or a counter.
+      const r1 = fract(Math.sin(index * 12.9898 + i * 78.233) * 43758.5453);
+      const r2 = fract(Math.sin(index * 39.3468 + i * 11.135) * 24634.6345);
+
+      const angle = r1 * Math.PI * 2;
+      const speed = burst.speed * (0.5 + r2);
+      const life = (PARTICLE_LIFE_MS / 1000) * (0.6 + r1 * 0.5);
+      if (seconds >= life) continue;
+
+      out.push({
+        x: x + Math.cos(angle) * speed * seconds,
+        y:
+          y +
+          Math.sin(angle) * speed * seconds +
+          PARTICLE_GRAVITY * seconds * seconds * 0.5,
+        size: burst.size * (0.6 + r2 * 0.8),
+        alpha: 1 - seconds / life,
+        kind: burst.kind,
+      });
+    }
+  }
+
+  return out;
+}
+
+const fract = (v: number) => v - Math.floor(v);
+
+/** How each loud event throws sparks. Presentation only. */
+const BURSTS = {
+  CRIT: { count: 12, speed: 78, size: 2, kind: "CRIT" as const },
+  SPECIAL: { count: 14, speed: 58, size: 1.8, kind: "SPECIAL" as const },
+  ELIMINATION: { count: 20, speed: 88, size: 2.2, kind: "DEATH" as const },
+};
+
+const PARTICLE_LIFE_MS = 800;
+const PARTICLE_GRAVITY = 220;
 
 /**
  * Stacks damage numbers that would otherwise overlap.
@@ -638,6 +738,8 @@ function applyEvent(
           fromY: actor?.y ?? null,
           progress: clamp01(age / EFFECT_MS),
           slot: 0,
+          actorId: event.actorId ?? null,
+          targetId: event.targetId ?? null,
           ...(typeof event.damage === "number" ? { value: event.damage } : {}),
           ...(event.kind === "BLOCK" ? { blocked: true } : {}),
         });
@@ -653,6 +755,8 @@ function applyEvent(
           fromY: null,
           progress: clamp01(age / EFFECT_MS),
           slot: 0,
+          actorId: event.actorId ?? null,
+          targetId: event.targetId ?? null,
         });
       }
       // A block is the one hit that does not shake the camera: it is the
@@ -679,6 +783,8 @@ function applyEvent(
             fromY: actor?.y ?? null,
             progress: clamp01(age / EFFECT_MS),
             slot: 0,
+            actorId: event.actorId ?? null,
+            targetId: event.targetId ?? null,
           });
         }
       }

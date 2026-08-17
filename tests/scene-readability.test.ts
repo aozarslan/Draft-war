@@ -5,7 +5,6 @@ import { MAPS } from "../src/lib/game/maps";
 import { EVENT_CARDS } from "../src/lib/game/events";
 import { toReplay, type Replay, type ReplayContext } from "../src/lib/game/replay";
 import { ARENA, MAX_CAMERA_OFFSET, sceneAt, type Scene } from "../src/lib/render/scene";
-import { ParticlePool } from "../src/lib/render/particles";
 
 /**
  * ---------------------------------------------------------------------------
@@ -442,17 +441,6 @@ describe("shake and particles under load", () => {
     }
   });
 
-  it("keeps the busiest moment of a battle within the pool", () => {
-    const replay = replayOf("read-2");
-    // Emit for every emphatic event in the densest second of the battle.
-    const pool = new ParticlePool(320);
-    const loud = replay.events.filter((e) => e.emphasis);
-    for (const [i] of loud.entries()) {
-      pool.burst({ x: 100, y: 90, count: 24, color: "#fff", seed: i + 1 });
-    }
-    expect(pool.active).toBeLessThanOrEqual(320);
-    expect(loud.length).toBeGreaterThan(10);
-  });
 });
 
 describe("the ending, tied to the replay's own clock", () => {

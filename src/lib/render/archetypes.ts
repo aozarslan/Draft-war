@@ -208,6 +208,7 @@ export function artFor(
     palette: character.palette,
     portraitUrl: portraitOverride ?? character.thumbnailUrl ?? null,
     identity: identityFor(character, archetype),
+    archetype,
     ...(sheet ? { sheet } : {}),
   };
 }

@@ -17,10 +17,15 @@
 
 import type { Replay } from "@/lib/game/replay";
 import { AssetStore, type CharacterArt } from "./assets";
-import { SHEET_GROUND_RATIO } from "./archetypes";
+import { FRAME_SIZE, SHEET_GROUND_RATIO } from "./archetypes";
+import {
+  IDENTITY_TILE_ROWS,
+  IDENTITY_TILE_SIZE,
+  IDENTITY_TILE_SLOTS,
+  SPRITE_ANCHORS,
+} from "./anchors.generated";
 import type { IdentityConfig } from "./identity";
 import { cueIntensity, type Interactions } from "./interactions";
-import { ParticlePool } from "./particles";
 import {
   ARENA,
   MAX_CAMERA_OFFSET,
@@ -55,9 +60,50 @@ export interface BattleRendererOptions {
 const SPRITE_SIZE = 22; // arena units
 /** A sprite frame is mostly empty, so it is drawn larger than the disc it replaces. */
 const SHEET_SCALE = 1.5;
+/**
+ * How large a 16px identity tile is drawn, per slot.
+ *
+ * A head feature reads best slightly oversized — horns are what you look at.
+ * A back feature at the same scale stood six pixels off an eight-pixel body
+ * and read as a separate object hovering above it. Markings sit flat on the
+ * flank and want to match the body, not exceed it.
+ */
+const TILE_SCALE: Record<string, number> = {
+  head: 1.1,
+  back: 0.72,
+  body: 0.9,
+};
 /** How many frames the performance meter averages over. */
 const SAMPLE_FRAMES = 120;
 /** The colour a blow travels in, per kind. */
+/**
+ * Which anatomy delivers a blow which way.
+ *
+ * Keyed by visual archetype, so it scales with the body plans rather than with
+ * the catalogue: adding a seventh archetype adds one line here, not 268.
+ */
+export type CombatStyle = "CLAW" | "FANG" | "TALON" | "WAVE" | "SWING";
+
+const COMBAT_STYLE: Record<string, CombatStyle> = {
+  quadruped_small: "CLAW",
+  quadruped_medium: "CLAW",
+  quadruped_large: "CLAW",
+  serpentine: "FANG",
+  winged: "TALON",
+  aquatic: "WAVE",
+  humanoid_medium: "SWING",
+  humanoid_large: "SWING",
+  default: "SWING",
+};
+
+/** What colour each kind of spark is. */
+const PARTICLE_COLOR: Record<string, string> = {
+  HIT: "#e2e8f0",
+  CRIT: "#fb923c",
+  SPECIAL: "#c084fc",
+  DEATH: "#f8fafc",
+};
+
 const STRIKE_COLOR: Record<string, string> = {
   HIT: "#e2e8f0",
   CRIT: "#f97316",
@@ -73,7 +119,6 @@ export class BattleRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly replay: Replay;
   private readonly assets: AssetStore;
-  private readonly particles = new ParticlePool(320);
   private readonly clock: () => number;
   private readonly teamColors: Record<string, string>;
   private readonly reducedMotion: boolean;
@@ -82,8 +127,6 @@ export class BattleRenderer {
   private frame = 0;
   private lastTs = 0;
   private running = false;
-  /** Which events have already thrown sparks, so a repaint does not re-emit. */
-  private sparked = new Set<number>();
   private readonly frameTimes: number[] = [];
   private readonly intervals: number[] = [];
   private scale = 1;
@@ -106,6 +149,7 @@ export class BattleRenderer {
       if (!this.running) this.renderAt(this.clock());
     });
     this.assets.preload();
+    this.assets.preloadTiles();
     this.resize();
   }
 
@@ -117,8 +161,6 @@ export class BattleRenderer {
       if (!this.running) return;
       const dt = this.lastTs ? (ts - this.lastTs) / 1000 : 0;
       this.lastTs = ts;
-      this.particles.update(dt);
-
       const started = performance.now();
       this.renderAt(this.clock());
       this.recordFrame(performance.now() - started, dt);
@@ -165,7 +207,6 @@ export class BattleRenderer {
 
   dispose(): void {
     this.stop();
-    this.particles.clear();
     this.assets.dispose();
   }
 
@@ -205,8 +246,6 @@ export class BattleRenderer {
     ctx.clearRect(0, 0, width, height);
     ctx.restore();
 
-    this.emitSparks(scene);
-
     ctx.save();
     // World transform: letterbox, then camera.
     ctx.translate(this.offsetX, this.offsetY);
@@ -230,7 +269,7 @@ export class BattleRenderer {
     this.drawInteractions(ctx, scene);
     this.drawEffects(ctx, scene);
     if (scene.mvpCharacterId) this.drawMvp(ctx, scene);
-    if (!this.reducedMotion) this.drawParticles(ctx);
+    if (!this.reducedMotion) this.drawParticles(ctx, scene);
 
     ctx.restore();
 
@@ -446,7 +485,7 @@ export class BattleRenderer {
     // lines. Everything here is positioned from the sprite's own drawn box, so
     // it follows the lunge, the scale and the sink without extra bookkeeping.
     if (identity && sprite.kind === "SHEET") {
-      this.drawIdentity(ctx, c, identity, x, feetY);
+      this.drawIdentity(ctx, c, identity, x, feetY, sprite.frame, sprite.row);
     }
 
     // Hit flash, over whatever was drawn.
@@ -585,181 +624,64 @@ export class BattleRenderer {
     identity: IdentityConfig,
     x: number,
     feetY: number,
+    frame: number,
+    row: number,
   ): void {
+    const archetype = this.assets.archetypeFor(c.characterId);
+    if (!archetype) return;
+
+    const tiles = this.assets.tiles(identity.accent);
+    if (!tiles) return;
+
+    const anchors = SPRITE_ANCHORS[archetype]?.[row]?.[frame];
+    if (!anchors) return;
+
     const size = SPRITE_SIZE * SHEET_SCALE * identity.scale;
+    // The sprite's own top-left in arena units, so an anchor in frame pixels
+    // converts by one multiply. The body reported these while it was being
+    // drawn, which is why a horn cannot end up two pixels off a skull.
+    const unit = size / FRAME_SIZE;
+    const left = x - size / 2;
     const top = feetY - SHEET_GROUND_RATIO * size;
-    const body = size * 0.5;
-    // The head sits forward, toward whichever way the sprite faces.
-    const headX = x + c.facing * size * 0.22;
-    const headY = top + size * 0.34;
+
+    const place = (feature: string) => {
+      const meta = IDENTITY_TILE_SLOTS[feature];
+      if (!meta) return;
+      const rowIndex = IDENTITY_TILE_ROWS.indexOf(feature);
+      if (rowIndex < 0) return;
+
+      const anchor =
+        meta.slot === "head" ? anchors.head
+        : meta.slot === "back" ? anchors.back
+        : anchors.body;
+
+      const tileSize = IDENTITY_TILE_SIZE * unit * (TILE_SCALE[meta.slot] ?? 1);
+      const pivotX = (meta.pivot[0] / IDENTITY_TILE_SIZE) * tileSize;
+      const pivotY = (meta.pivot[1] / IDENTITY_TILE_SIZE) * tileSize;
+
+      ctx.save();
+      ctx.translate(left + anchor[0] * unit, top + anchor[1] * unit);
+      // Tiles are drawn facing right; mirroring keeps a crest pointing the way
+      // the animal is looking.
+      ctx.scale(c.facing, 1);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        tiles,
+        0, rowIndex * IDENTITY_TILE_SIZE,
+        IDENTITY_TILE_SIZE, IDENTITY_TILE_SIZE,
+        -pivotX, -pivotY,
+        tileSize, tileSize,
+      );
+      ctx.restore();
+    };
 
     ctx.save();
     ctx.globalAlpha = c.opacity;
-    ctx.strokeStyle = identity.accent;
-    ctx.fillStyle = identity.accent;
-    ctx.lineWidth = Math.max(1, size * 0.045);
-    ctx.lineCap = "round";
-
-    switch (identity.head) {
-      case "HORNS": {
-        for (const side of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(headX, headY - size * 0.04);
-          ctx.quadraticCurveTo(
-            headX + side * size * 0.13, headY - size * 0.16,
-            headX + side * size * 0.18, headY - size * 0.05,
-          );
-          ctx.stroke();
-        }
-        break;
-      }
-      case "ANTLERS": {
-        for (const side of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(headX, headY - size * 0.04);
-          ctx.lineTo(headX + side * size * 0.1, headY - size * 0.22);
-          ctx.moveTo(headX + side * size * 0.05, headY - size * 0.13);
-          ctx.lineTo(headX + side * size * 0.15, headY - size * 0.17);
-          ctx.stroke();
-        }
-        break;
-      }
-      case "EARS": {
-        for (const side of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(headX + side * size * 0.05, headY - size * 0.02);
-          ctx.lineTo(headX + side * size * 0.09, headY - size * 0.15);
-          ctx.lineTo(headX + side * size * 0.12, headY - size * 0.02);
-          ctx.closePath();
-          ctx.fill();
-        }
-        break;
-      }
-      case "CREST": {
-        ctx.beginPath();
-        ctx.moveTo(headX - c.facing * size * 0.02, headY - size * 0.02);
-        ctx.lineTo(headX - c.facing * size * 0.12, headY - size * 0.18);
-        ctx.lineTo(headX + c.facing * size * 0.05, headY - size * 0.08);
-        ctx.closePath();
-        ctx.fill();
-        break;
-      }
-      case "TUSKS": {
-        for (const side of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(headX + c.facing * size * 0.05, headY + size * 0.05);
-          ctx.quadraticCurveTo(
-            headX + c.facing * size * 0.19, headY + size * 0.08 + side * size * 0.02,
-            headX + c.facing * size * 0.2, headY - size * 0.02 + side * size * 0.02,
-          );
-          ctx.stroke();
-        }
-        break;
-      }
-      case "HELM": {
-        ctx.beginPath();
-        ctx.moveTo(headX - size * 0.1, headY - size * 0.05);
-        ctx.lineTo(headX + size * 0.1, headY - size * 0.05);
-        ctx.stroke();
-        break;
-      }
-    }
-
-    switch (identity.back) {
-      case "MANE": {
-        ctx.globalAlpha = c.opacity * 0.85;
-        ctx.beginPath();
-        ctx.arc(headX - c.facing * size * 0.07, headY + size * 0.06, size * 0.15, 0, Math.PI * 2);
-        ctx.lineWidth = Math.max(1, size * 0.055);
-        ctx.stroke();
-        ctx.globalAlpha = c.opacity;
-        break;
-      }
-      case "SPINES": {
-        ctx.lineWidth = Math.max(1, size * 0.035);
-        for (let i = 0; i < 4; i++) {
-          const sx = x - c.facing * size * (0.02 + i * 0.07);
-          ctx.beginPath();
-          ctx.moveTo(sx, top + size * 0.44);
-          ctx.lineTo(sx, top + size * 0.34);
-          ctx.stroke();
-        }
-        break;
-      }
-      case "FIN": {
-        ctx.beginPath();
-        ctx.moveTo(x - size * 0.04, top + size * 0.44);
-        ctx.lineTo(x + size * 0.02, top + size * 0.2);
-        ctx.lineTo(x + size * 0.1, top + size * 0.44);
-        ctx.closePath();
-        ctx.fill();
-        break;
-      }
-      case "CAPE": {
-        ctx.globalAlpha = c.opacity * 0.75;
-        ctx.beginPath();
-        ctx.moveTo(x - c.facing * size * 0.08, top + size * 0.34);
-        ctx.lineTo(x - c.facing * size * 0.22, feetY - size * 0.08);
-        ctx.lineTo(x - c.facing * size * 0.02, feetY - size * 0.06);
-        ctx.closePath();
-        ctx.fill();
-        ctx.globalAlpha = c.opacity;
-        break;
-      }
-      case "SHELL": {
-        ctx.lineWidth = Math.max(1, size * 0.05);
-        ctx.beginPath();
-        ctx.arc(x, top + size * 0.5, size * 0.2, Math.PI, Math.PI * 2);
-        ctx.stroke();
-        break;
-      }
-    }
-
-    ctx.globalAlpha = c.opacity * 0.8;
-    switch (identity.marking) {
-      case "STRIPES": {
-        ctx.lineWidth = Math.max(1, size * 0.04);
-        for (let i = 0; i < 3; i++) {
-          const sx = x - c.facing * size * (0.02 + i * 0.09);
-          ctx.beginPath();
-          ctx.moveTo(sx, top + size * 0.46);
-          ctx.lineTo(sx - c.facing * size * 0.03, top + size * 0.62);
-          ctx.stroke();
-        }
-        break;
-      }
-      case "SPOTS": {
-        for (let i = 0; i < 4; i++) {
-          const sx = x - c.facing * size * (0.02 + (i % 2) * 0.12);
-          const sy = top + size * (0.48 + Math.floor(i / 2) * 0.1);
-          ctx.beginPath();
-          ctx.arc(sx, sy, size * 0.028, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        break;
-      }
-      case "PATCH": {
-        ctx.beginPath();
-        ctx.ellipse(
-          x - c.facing * size * 0.06, top + size * 0.5,
-          size * 0.11, size * 0.07, 0, 0, Math.PI * 2,
-        );
-        ctx.fill();
-        break;
-      }
-      case "BANDS": {
-        ctx.lineWidth = Math.max(1, size * 0.045);
-        for (let i = 0; i < 4; i++) {
-          const sx = x - c.facing * size * (0.06 + i * 0.1);
-          ctx.beginPath();
-          ctx.moveTo(sx, top + size * 0.68);
-          ctx.lineTo(sx, top + size * 0.82);
-          ctx.stroke();
-        }
-        break;
-      }
-    }
-
+    // Markings under the features, so a mane sits over a stripe rather than
+    // being cut by it.
+    if (identity.marking !== "PLAIN") place(identity.marking);
+    if (identity.back !== "NONE") place(identity.back);
+    if (identity.head !== "PLAIN") place(identity.head);
     ctx.restore();
   }
 
@@ -805,6 +727,13 @@ export class BattleRenderer {
           ? Math.atan2(effect.fromY - effect.y, effect.fromX - effect.x)
           : Math.PI;
 
+      // How this body plan delivers a blow. The event, its damage and its
+      // timing are the engine's and unchanged; only the shape drawn over the
+      // target differs, so a snake's strike does not look like a bear's swipe.
+      const style = COMBAT_STYLE[
+        (effect.actorId ? this.assets.archetypeFor(effect.actorId) : null) ?? ""
+      ] ?? COMBAT_STYLE.default;
+
       switch (effect.kind) {
         case "GUARD": {
           // A shield arc facing the blow, holding rather than expanding: a
@@ -835,18 +764,9 @@ export class BattleRenderer {
           ctx.beginPath();
           ctx.arc(effect.x, effect.y, easeOutCubic(t) * 13, 0, Math.PI * 2);
           ctx.stroke();
-          // Four spikes, so a crit is a shape and not just a bigger circle.
           ctx.globalAlpha = 1 - t;
           ctx.lineWidth = 1.6;
-          for (let i = 0; i < 4; i++) {
-            const a = angle + (i * Math.PI) / 2 + 0.4;
-            const inner = 6 + easeOutCubic(t) * 8;
-            const outer = inner + 7 * (1 - t);
-            ctx.beginPath();
-            ctx.moveTo(effect.x + Math.cos(a) * inner, effect.y + Math.sin(a) * inner);
-            ctx.lineTo(effect.x + Math.cos(a) * outer, effect.y + Math.sin(a) * outer);
-            ctx.stroke();
-          }
+          this.drawSignature(ctx, style, effect.x, effect.y, angle, t, 1.25);
           break;
         }
 
@@ -890,8 +810,9 @@ export class BattleRenderer {
           ctx.strokeStyle = "#e2e8f0";
           ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 13, 0, Math.PI * 2);
+          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 11, 0, Math.PI * 2);
           ctx.stroke();
+          this.drawSignature(ctx, style, effect.x, effect.y, angle, t, 1);
         }
       }
 
@@ -966,13 +887,102 @@ export class BattleRenderer {
     ctx.restore();
   }
 
-  private drawParticles(ctx: CanvasRenderingContext2D): void {
+  /**
+   * The mark a body plan leaves on the thing it hits.
+   *
+   * Claw rakes for a quadruped, a pair of fang punctures for a serpent, a
+   * downward talon sweep for a flier, a wave front for a swimmer, a straight
+   * swing arc for a humanoid. All of them are the same event with the same
+   * damage at the same instant — the engine decided everything; this decides
+   * only what the blow looks like coming from that anatomy.
+   */
+  private drawSignature(
+    ctx: CanvasRenderingContext2D,
+    style: CombatStyle,
+    x: number,
+    y: number,
+    angle: number,
+    t: number,
+    weight: number,
+  ): void {
+    const reach = (6 + easeOutCubic(t) * 9) * weight;
+    const fade = 1 - t;
+    // The blow arrives from `angle`, so marks are laid across that direction.
+    const across = angle + Math.PI / 2;
+
+    switch (style) {
+      case "CLAW": {
+        // Three parallel rakes.
+        for (let i = -1; i <= 1; i++) {
+          const offset = i * 4 * weight;
+          const cx = x + Math.cos(across) * offset;
+          const cy = y + Math.sin(across) * offset;
+          ctx.beginPath();
+          ctx.moveTo(cx - Math.cos(angle) * reach * 0.6, cy - Math.sin(angle) * reach * 0.6);
+          ctx.lineTo(cx + Math.cos(angle) * reach * 0.5, cy + Math.sin(angle) * reach * 0.5);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "FANG": {
+        // Two punctures, close together, driven inward.
+        for (const side of [-1, 1]) {
+          const cx = x + Math.cos(across) * side * 2.5 * weight;
+          const cy = y + Math.sin(across) * side * 2.5 * weight;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(angle) * reach * 0.55, cy + Math.sin(angle) * reach * 0.55);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "TALON": {
+        // A hooked sweep, coming down out of the dive.
+        ctx.beginPath();
+        ctx.arc(x, y, reach * 0.8, angle - 1.1, angle + 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(angle + 0.5) * reach * 0.8, y + Math.sin(angle + 0.5) * reach * 0.8);
+        ctx.lineTo(x + Math.cos(angle + 0.9) * reach * 0.4, y + Math.sin(angle + 0.9) * reach * 0.4);
+        ctx.stroke();
+        break;
+      }
+      case "WAVE": {
+        // Concentric fronts washing outward.
+        for (let i = 0; i < 2; i++) {
+          ctx.globalAlpha = fade * (1 - i * 0.4);
+          ctx.beginPath();
+          ctx.arc(x, y, reach * (0.6 + i * 0.5), angle - 1.4, angle + 1.4);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = fade;
+        break;
+      }
+      case "SWING": {
+        // One wide arc, the way a swung arm or weapon lands.
+        ctx.beginPath();
+        ctx.arc(x, y, reach * 0.9, angle - 1.5, angle + 0.4);
+        ctx.stroke();
+        break;
+      }
+    }
+  }
+
+  /**
+   * Sparks, straight from the scene.
+   *
+   * The renderer used to own a pool and emit into it from `renderAt`, which
+   * made drawing a frame a mutation: scrubbing back to the same millisecond
+   * produced different sparks, and the benchmark's tight loop filled the arena
+   * with debris. The scene now derives them from the clock instead.
+   */
+  private drawParticles(ctx: CanvasRenderingContext2D, scene: Scene): void {
     ctx.save();
-    this.particles.forEach((p) => {
+    for (const p of scene.particles) {
       ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
+      ctx.fillStyle = PARTICLE_COLOR[p.kind];
       ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-    });
+    }
     ctx.restore();
   }
 
@@ -1049,38 +1059,4 @@ export class BattleRenderer {
    * they have their own drift — so this guards on the event index rather than
    * on time, and a scrub backwards simply replays them.
    */
-  private emitSparks(scene: Scene): void {
-    // No sparks at all when motion is reduced. Nothing is lost: a spark never
-    // carried information the ring and the number did not already carry.
-    if (this.reducedMotion) return;
-    const index = scene.focusEventIndex;
-    if (index === null || this.sparked.has(index)) return;
-    this.sparked.add(index);
-
-    const event = this.replay.events[index];
-    const target = scene.combatants.find((c) => c.characterId === event.targetId);
-    if (!target) return;
-
-    // The pool is a fixed ring, so a dense exchange cannot grow it — but it can
-    // still fill it with one event's sparks and starve the next. Capping the
-    // burst keeps several simultaneous blows all visible.
-    const room = Math.max(6, Math.floor(this.particles.capacity / 8));
-
-    if (event.kind === "ELIMINATION") {
-      this.particles.burst({
-        x: target.x, y: target.y, count: Math.min(24, room), color: "#f8fafc",
-        speed: 90, spread: Math.PI, size: 2.2, lifeSeconds: 0.8, seed: index + 1,
-      });
-    } else if (event.kind === "CRIT") {
-      this.particles.burst({
-        x: target.x, y: target.y, count: Math.min(14, room), color: "#fb923c",
-        speed: 80, spread: Math.PI, size: 2, lifeSeconds: 0.5, seed: index + 1,
-      });
-    } else if (event.kind === "SPECIAL") {
-      this.particles.burst({
-        x: target.x, y: target.y, count: Math.min(16, room), color: "#c084fc",
-        speed: 60, spread: Math.PI, size: 1.8, lifeSeconds: 0.7, seed: index + 1,
-      });
-    }
-  }
 }

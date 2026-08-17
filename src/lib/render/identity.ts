@@ -273,6 +273,62 @@ export function identityFor(
 }
 
 /**
+ * Separates any two characters in one battle that resolved to the same look.
+ *
+ * Catalogue-wide collisions are tolerable — nobody sees 268 sprites at once —
+ * but two identical creatures standing next to each other is exactly the
+ * problem this layer exists to solve. The nudge is applied in roster order and
+ * depends on nothing but the roster, so every viewer separates the same pair
+ * the same way.
+ *
+ * Only the *second* of a colliding pair moves, and only along one axis at a
+ * time, so a character's look stays as close to what its own data implies as
+ * the collision allows.
+ */
+export function disambiguate(
+  roster: { characterId: string; config: IdentityConfig }[],
+): Map<string, IdentityConfig> {
+  const out = new Map<string, IdentityConfig>();
+  const taken = new Set<string>();
+
+  for (const entry of roster) {
+    let config = entry.config;
+    let attempt = 0;
+
+    while (taken.has(identitySignature(config)) && attempt < DISAMBIGUATION_STEPS.length) {
+      config = DISAMBIGUATION_STEPS[attempt](config, entry.characterId);
+      attempt++;
+    }
+
+    taken.add(identitySignature(config));
+    out.set(entry.characterId, config);
+  }
+
+  return out;
+}
+
+/**
+ * The order in which a colliding look is nudged.
+ *
+ * Marking first because it is the cheapest change to read past, then the back
+ * feature, then size, then the head — the head is the most characterful part
+ * of a silhouette and the last thing worth disturbing.
+ */
+const DISAMBIGUATION_STEPS: ((c: IdentityConfig, id: string) => IdentityConfig)[] = [
+  (c, id) => ({ ...c, marking: pick(id, 91, MARKINGS.filter((m) => m !== c.marking)) }),
+  (c, id) => ({
+    ...c,
+    back: pick(id, 92, (["NONE", "MANE", "SPINES", "CAPE"] as BackFeature[]).filter((b) => b !== c.back)),
+  }),
+  (c) => ({ ...c, scale: Math.round((c.scale * 0.88) * 100) / 100 }),
+  (c, id) => ({
+    ...c,
+    head: pick(id, 93, (["PLAIN", "HORNS", "EARS", "CREST"] as HeadFeature[]).filter((h) => h !== c.head)),
+  }),
+  (c) => ({ ...c, scale: Math.round((c.scale * 1.14) * 100) / 100 }),
+];
+
+/**
  * A compact, comparable summary of what a character looks like.
  *
  * Two characters with the same signature are drawn identically — which is what

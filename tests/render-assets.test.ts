@@ -6,7 +6,6 @@ import {
   type CharacterArt,
   type SpriteClip,
 } from "../src/lib/render/assets";
-import { ParticlePool } from "../src/lib/render/particles";
 
 /**
  * The store only reaches for `window.Image`, so a stub is enough to drive the
@@ -140,63 +139,5 @@ describe("frame animator", () => {
 
   it("survives a single-frame clip", () => {
     expect(frameAt({ row: 0, frames: 1, loop: true }, 0.7)).toBe(0);
-  });
-});
-
-describe("particle pool", () => {
-  it("never grows past its capacity, however much it is asked to emit", () => {
-    const pool = new ParticlePool(32);
-    for (let i = 0; i < 50; i++) {
-      pool.burst({ x: 10, y: 10, count: 16, color: "#fff", seed: i + 1 });
-    }
-    expect(pool.active).toBeLessThanOrEqual(32);
-  });
-
-  it("expires everything it emits", () => {
-    const pool = new ParticlePool(64);
-    pool.burst({ x: 0, y: 0, count: 20, color: "#fff", lifeSeconds: 0.4, seed: 7 });
-    expect(pool.active).toBe(20);
-    for (let i = 0; i < 20; i++) pool.update(0.05);
-    expect(pool.active).toBe(0);
-  });
-
-  it("emits the same burst twice for the same seed", () => {
-    const read = (pool: ParticlePool) => {
-      const out: number[] = [];
-      pool.forEach((p) => out.push(p.x, p.y, p.size));
-      return out;
-    };
-    const a = new ParticlePool(16);
-    const b = new ParticlePool(16);
-    a.burst({ x: 5, y: 5, count: 8, color: "#fff", seed: 42 });
-    b.burst({ x: 5, y: 5, count: 8, color: "#fff", seed: 42 });
-    a.update(0.1);
-    b.update(0.1);
-    expect(read(a)).toEqual(read(b));
-  });
-
-  it("does not teleport particles when a backgrounded tab returns", () => {
-    const pool = new ParticlePool(8);
-    pool.burst({ x: 0, y: 0, count: 4, color: "#fff", lifeSeconds: 10, seed: 3 });
-    pool.update(30); // thirty seconds of missed frames
-    let maxDistance = 0;
-    pool.forEach((p) => (maxDistance = Math.max(maxDistance, Math.hypot(p.x, p.y))));
-    expect(maxDistance).toBeLessThan(100);
-  });
-
-  it("allocates nothing while walking live particles", () => {
-    const pool = new ParticlePool(16);
-    pool.burst({ x: 1, y: 1, count: 10, color: "#fff", seed: 9 });
-    const seen: unknown[] = [];
-    pool.forEach((p) => seen.push(p));
-    // The same view object is handed out each time — that is the point of it.
-    expect(new Set(seen).size).toBe(1);
-  });
-
-  it("clears on demand", () => {
-    const pool = new ParticlePool(16);
-    pool.burst({ x: 0, y: 0, count: 10, color: "#fff", seed: 1 });
-    pool.clear();
-    expect(pool.active).toBe(0);
   });
 });

@@ -181,6 +181,21 @@ export interface Pose {
   jaw: number;
 }
 
+/**
+ * Where identity layers attach, in frame pixels.
+ *
+ * Returned by the draw functions rather than computed alongside them: the head
+ * moves with every pose, and a second copy of that arithmetic would drift from
+ * the first the moment either was tuned. A horn that sits two pixels off its
+ * skull is worse than no horn.
+ */
+export interface BodyAnchors {
+  head: { x: number; y: number };
+  back: { x: number; y: number };
+  /** The body's own centre, for markings. */
+  body: { x: number; y: number };
+}
+
 export const REST: Pose = {
   push: 0, lift: 0, lean: 0, rear: 0, headX: 0, headY: 0,
   limbs: [0, 0, 0, 0], tail: 0, collapse: 0, jaw: 0,
@@ -226,7 +241,7 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
  * anatomy at three-quarter size with a lower stance, and drawing it twice would
  * mean fixing every bug twice.
  */
-function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): void {
+function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): BodyAnchors {
   const p = shifted(cell, pose.push);
   const collapse = clamp01(pose.collapse);
   // The collapse is scaled with the body: an absolute drop buries a small
@@ -290,6 +305,12 @@ function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): void {
   }
   p.line(headX - 2 * scale, headY - 3 * scale, headX - 3 * scale, headY - 5.5 * scale, BASE, 2);
   p.set(headX + 1.4 * scale, headY - 0.6, OUTLINE);
+
+  return {
+    head: { x: headX + pose.push, y: headY },
+    back: { x: 16 + pose.push, y: bodyCy - bodyRy },
+    body: { x: 16 + pose.push, y: bodyCy },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +325,7 @@ function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): void {
  * produce a raised guard. `rear` throws the shoulders back, which is what a
  * roar looks like on a body that is already upright.
  */
-function drawHumanoid(cell: Pixels, pose: Pose): void {
+function drawHumanoid(cell: Pixels, pose: Pose): BodyAnchors {
   const p = shifted(cell, pose.push);
   const collapse = clamp01(pose.collapse);
 
@@ -322,7 +343,11 @@ function drawHumanoid(cell: Pixels, pose: Pose): void {
     p.line(21, y + 1, 26, y + 2, SHADE, 2);
     p.line(21, y - 1, 26, y - 1, SHADE, 2);
     p.line(13, y - 2, 17, y - 5, SHADE, 2);
-    return;
+    return {
+      head: { x: 9 + pose.push, y: y - 1 },
+      back: { x: 16 + pose.push, y: y - 2 },
+      body: { x: 16 + pose.push, y },
+    };
   }
 
   const hipY = GROUND - 8 + pose.lift;
@@ -365,6 +390,12 @@ function drawHumanoid(cell: Pixels, pose: Pose): void {
   if (pose.jaw > 0.4) p.rect(headX + 0.5, headY + 1, 2, Math.max(1, pose.jaw * 2), OUTLINE);
   p.set(headX + 1.6, headY - 0.4, OUTLINE);
   p.set(headX - 1, headY - 0.4, OUTLINE);
+
+  return {
+    head: { x: headX + pose.push, y: headY },
+    back: { x: shoulderX + pose.push, y: shoulderY },
+    body: { x: 16 + pose.push, y: (hipY + shoulderY) / 2 },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +410,7 @@ function drawHumanoid(cell: Pixels, pose: Pose): void {
  * the wingbeat, `rear` sweeps the wings back into a dive, and `collapse`
  * folds them and drops the bird onto the line.
  */
-function drawWinged(cell: Pixels, pose: Pose): void {
+function drawWinged(cell: Pixels, pose: Pose): BodyAnchors {
   const p = shifted(cell, pose.push);
   const collapse = clamp01(pose.collapse);
 
@@ -438,6 +469,12 @@ function drawWinged(cell: Pixels, pose: Pose): void {
     p.line(bodyX + 1, bodyY + 2, bodyX + 3 + reach, bodyY + 5 + reach * 0.5, SHADE, 2);
     p.line(bodyX - 1, bodyY + 2, bodyX + 1 + reach, bodyY + 5 + reach * 0.5, BASE, 2);
   }
+
+  return {
+    head: { x: headX + pose.push, y: headY },
+    back: { x: bodyX + pose.push, y: bodyY - 3 },
+    body: { x: bodyX + pose.push, y: bodyY },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +489,7 @@ function drawWinged(cell: Pixels, pose: Pose): void {
  * (the wave along the body). A snake striking is the coil collapsing into a
  * straight line, which is exactly `rear` falling to zero while `push` spikes.
  */
-function drawSerpentine(cell: Pixels, pose: Pose): void {
+function drawSerpentine(cell: Pixels, pose: Pose): BodyAnchors {
   const p = shifted(cell, pose.push);
   const collapse = clamp01(pose.collapse);
 
@@ -501,6 +538,12 @@ function drawSerpentine(cell: Pixels, pose: Pose): void {
   } else {
     p.line(headX + 2.5, headY + 0.4, headX + 5, headY + 0.4, LIGHT);
   }
+
+  return {
+    head: { x: headX + pose.push, y: headY },
+    back: { x: 14 + pose.push, y: baseY - coil * 0.4 - 2 },
+    body: { x: 14 + pose.push, y: baseY - coil * 0.3 },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +557,7 @@ function drawSerpentine(cell: Pixels, pose: Pose): void {
  * by putting the dorsal fin underneath rather than by rotating the sprite —
  * a rotated pixel silhouette at this size loses its shape entirely.
  */
-function drawAquatic(cell: Pixels, pose: Pose): void {
+function drawAquatic(cell: Pixels, pose: Pose): BodyAnchors {
   const p = shifted(cell, pose.push);
   const collapse = clamp01(pose.collapse);
   const bellyUp = collapse > 0.5;
@@ -558,6 +601,12 @@ function drawAquatic(cell: Pixels, pose: Pose): void {
     p.line(headX - 1, headY + 0.6, headX + 3.5, headY + 0.6, LIGHT);
   }
   p.set(headX + 0.4, headY - 0.8 * -finDir, OUTLINE);
+
+  return {
+    head: { x: headX + pose.push, y: headY },
+    back: { x: 17 + pose.push, y: bodyY + 5 * finDir },
+    body: { x: 16 + pose.push, y: bodyY },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +621,7 @@ export type BodyId =
   | "winged"
   | "aquatic";
 
-export const BODIES: Record<BodyId, (cell: Pixels, pose: Pose) => void> = {
+export const BODIES: Record<BodyId, (cell: Pixels, pose: Pose) => BodyAnchors> = {
   humanoid_medium: drawHumanoid,
   quadruped_small: (cell, pose) => drawQuadruped(cell, pose, 0.72),
   quadruped_medium: (cell, pose) => drawQuadruped(cell, pose, 1),
@@ -580,3 +629,172 @@ export const BODIES: Record<BodyId, (cell: Pixels, pose: Pose) => void> = {
   winged: drawWinged,
   aquatic: drawAquatic,
 };
+
+// ---------------------------------------------------------------------------
+// Identity tiles
+// ---------------------------------------------------------------------------
+
+/**
+ * The features that tell two tenants of one body plan apart.
+ *
+ * Drawn as pixels on the same grid as the bodies, in the same greyscale, so a
+ * horn is made of the same material as the skull it sits on. M7 drew these
+ * with canvas curves and they read as a different medium stuck on top of the
+ * sprite — smooth arcs over hard pixels.
+ *
+ * Each tile is drawn facing right, in its own small cell, and stamped at an
+ * anchor the body reported. Fifteen tiles cover the whole catalogue; the
+ * alternative was a sheet per archetype per feature.
+ */
+export const TILE = 16;
+
+/** Where the tile's attachment point sits inside its own cell. */
+export interface TilePivot {
+  x: number;
+  y: number;
+}
+
+export interface IdentityTile {
+  id: string;
+  /** Which anchor it attaches to. */
+  slot: "head" | "back" | "body";
+  pivot: TilePivot;
+  draw: (p: Pixels) => void;
+}
+
+const c = TILE / 2;
+
+export const IDENTITY_TILES: IdentityTile[] = [
+  // ---- head ----
+  {
+    id: "HORNS", slot: "head", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      for (const side of [-1, 1]) {
+        for (let i = 0; i <= 5; i++) {
+          const t = i / 5;
+          p.set(c + side * (1 + t * 4), 11 - t * 5 - Math.sin(t * 2) * 1.5, i > 3 ? LIGHT : BASE);
+        }
+      }
+    },
+  },
+  {
+    id: "ANTLERS", slot: "head", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      for (const side of [-1, 1]) {
+        p.line(c + side, 11, c + side * 3, 4, BASE);
+        p.line(c + side * 2, 7, c + side * 5, 5, LIGHT);
+        p.set(c + side * 3, 3, LIGHT);
+      }
+    },
+  },
+  {
+    id: "EARS", slot: "head", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      for (const side of [-1, 1]) {
+        p.triangle(c + side * 1, 11, c + side * 3, 5, c + side * 5, 11, BASE);
+        p.set(c + side * 3, 9, LIGHT);
+      }
+    },
+  },
+  {
+    id: "CREST", slot: "head", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      p.triangle(c - 3, 11, c - 1, 4, c + 3, 10, LIGHT);
+      p.triangle(c - 3, 11, c - 1, 6, c + 1, 11, BASE);
+    },
+  },
+  {
+    id: "TUSKS", slot: "head", pivot: { x: c, y: 8 },
+    draw: (p) => {
+      for (const side of [0, 1]) {
+        for (let i = 0; i <= 5; i++) {
+          const t = i / 5;
+          p.set(c + t * 5, 8 + side + t * t * 3 - t * 3, LIGHT);
+        }
+      }
+    },
+  },
+  {
+    id: "HELM", slot: "head", pivot: { x: c, y: 10 },
+    draw: (p) => {
+      p.rect(c - 4, 8, 9, 2, BASE);
+      p.rect(c - 4, 7, 3, 1, LIGHT);
+      p.set(c + 4, 7, LIGHT);
+    },
+  },
+
+  // ---- back ----
+  {
+    id: "MANE", slot: "head", pivot: { x: c, y: 8 },
+    draw: (p) => {
+      for (let a = 0; a < 12; a++) {
+        const angle = (a / 12) * Math.PI * 2;
+        const r = 4 + (a % 2);
+        p.set(c + Math.cos(angle) * r, 8 + Math.sin(angle) * r, a % 2 ? BASE : SHADE);
+      }
+      p.ellipse(c, 8, 3, 3, SHADE);
+    },
+  },
+  {
+    id: "SPINES", slot: "back", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      for (let i = 0; i < 4; i++) {
+        p.line(c - 5 + i * 3, 12, c - 4 + i * 3, 12 - 4 + (i % 2), LIGHT);
+      }
+    },
+  },
+  {
+    id: "FIN", slot: "back", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      p.triangle(c - 4, 12, c + 1, 3, c + 4, 12, BASE);
+      p.triangle(c - 2, 12, c + 1, 6, c + 2, 12, LIGHT);
+    },
+  },
+  {
+    id: "CAPE", slot: "back", pivot: { x: c, y: 4 },
+    draw: (p) => {
+      // Kept a row clear of the bottom: the outline adds one more, and a tile
+      // that touches its cell edge bleeds into the next row of the sheet.
+      p.triangle(c + 2, 4, c - 5, 13, c + 3, 12, SHADE);
+      p.line(c + 1, 5, c - 3, 12, BASE);
+    },
+  },
+  {
+    id: "SHELL", slot: "back", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      p.ellipse(c, 10, 5, 3, SHADE);
+      p.ellipse(c, 10, 3.4, 1.8, BASE);
+      p.line(c - 4, 10, c + 4, 10, LIGHT);
+    },
+  },
+
+  // ---- markings ----
+  {
+    id: "STRIPES", slot: "body", pivot: { x: c, y: c },
+    draw: (p) => {
+      for (let i = 0; i < 4; i++) {
+        p.line(c - 5 + i * 3, c - 3, c - 6 + i * 3, c + 3, SHADE);
+      }
+    },
+  },
+  {
+    id: "SPOTS", slot: "body", pivot: { x: c, y: c },
+    draw: (p) => {
+      const at: [number, number][] = [[-4, -2], [0, -3], [3, -1], [-2, 2], [2, 2]];
+      for (const [dx, dy] of at) p.rect(c + dx, c + dy, 2, 2, SHADE);
+    },
+  },
+  {
+    id: "PATCH", slot: "body", pivot: { x: c, y: c },
+    draw: (p) => {
+      p.ellipse(c, c, 4, 2.5, SHADE);
+      p.ellipse(c - 1, c - 1, 2, 1, LIGHT);
+    },
+  },
+  {
+    id: "BANDS", slot: "body", pivot: { x: c, y: c },
+    draw: (p) => {
+      for (let i = 0; i < 4; i++) p.rect(c - 5 + i * 3, c - 3, 2, 7, SHADE);
+    },
+  },
+];

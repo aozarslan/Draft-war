@@ -87,9 +87,38 @@ export interface CharacterArt {
   portraitUrl: string | null;
   /** Registered sprite sheet. None exist yet; the field is the seam. */
   sheet?: SpriteSheet;
+  /** Which body plan drew the sheet, for looking up its anchors. */
+  archetype?: string;
 }
 
 type Slot = { image: HTMLImageElement; ready: boolean; failed: boolean };
+
+/** Where the identity tiles live. One sheet for every body plan. */
+export const IDENTITY_TILES_SRC = "/sprites/identity.png";
+
+/** Multiplies a flat colour through a greyscale sheet, keeping its alpha. */
+function flatTint(
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+  colour: string,
+): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, 0, 0);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, width, height);
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(image, 0, 0);
+  return canvas;
+}
 
 /**
  * Recolours a greyscale sheet with a character's palette.
@@ -149,6 +178,7 @@ export class AssetStore {
   private readonly art = new Map<string, CharacterArt>();
   private readonly images = new Map<string, Slot>();
   private readonly tints = new Map<string, HTMLCanvasElement | null>();
+  private readonly flats = new Map<string, HTMLCanvasElement | null>();
   private onReady: (() => void) | null = null;
 
   constructor(art: CharacterArt[] = []) {
@@ -211,6 +241,41 @@ export class AssetStore {
     return this.art.get(characterId)?.identity ?? null;
   }
 
+  /** Which body plan this character is drawn with. */
+  archetypeFor(characterId: string): string | null {
+    return this.art.get(characterId)?.archetype ?? null;
+  }
+
+  /**
+   * The identity tile sheet, flooded with one character's accent.
+   *
+   * Flat rather than gradient-tinted: a tile is a single feature a few pixels
+   * across, and shading it across its own height only muddies the shape. The
+   * greyscale still shows through as the shape's own light and dark because
+   * the flood multiplies rather than replaces.
+   */
+  tiles(accent: string): HTMLCanvasElement | null {
+    const cached = this.flats.get(accent);
+    if (cached !== undefined) return cached;
+
+    const slot = this.load(IDENTITY_TILES_SRC);
+    if (!slot?.ready) return null;
+
+    const canvas = flatTint(
+      slot.image,
+      slot.image.naturalWidth,
+      slot.image.naturalHeight,
+      accent,
+    );
+    this.flats.set(accent, canvas);
+    return canvas;
+  }
+
+  /** Starts the tile sheet loading alongside the bodies. */
+  preloadTiles(): void {
+    this.load(IDENTITY_TILES_SRC);
+  }
+
   /** Which row of the sheet an animation lives on, for the draw layer. */
   clipRow(characterId: string, animation: AnimationHint): number {
     const sheet = this.art.get(characterId)?.sheet;
@@ -230,6 +295,7 @@ export class AssetStore {
     for (const slot of this.images.values()) slot.image.src = "";
     this.images.clear();
     this.tints.clear();
+    this.flats.clear();
     this.onReady = null;
   }
 
