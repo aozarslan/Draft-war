@@ -6,6 +6,8 @@ import type { BattleLogEntry, BattleMap, Character, EventCard } from "@/lib/game
 import { playerColor } from "@/lib/game/colors";
 import { getCategory } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
+import { buildStage, elapsedFor } from "@/lib/render/stage";
+import { BattleCanvas } from "./BattleCanvas";
 import { Panel, SectionTitle } from "./ui";
 
 const ICONS: Record<BattleLogEntry["kind"], string> = {
@@ -24,6 +26,12 @@ const ICONS: Record<BattleLogEntry["kind"], string> = {
  * Cinematic playback. The whole battle is computed and stored server-side the
  * moment the phase starts; each client simply replays it against
  * `battleStartedAt`, so four phones stay frame-aligned without any streaming.
+ *
+ * The arena is drawn on a canvas by `BattleRenderer`, which samples the same
+ * `serverNow() - battleStartedAt` this component already used for the log
+ * feed. There is one clock and one authoritative result; the renderer reads
+ * both and decides nothing. The text feed below it stays — it is the record of
+ * what happened, and it is what a screen reader gets.
  */
 export function BattleStage({
   store,
@@ -43,13 +51,52 @@ export function BattleStage({
 
   const result = snapshot?.game?.battleResult ?? null;
   const startedAt = snapshot?.game?.battleStartedAt ?? null;
+  const duration = result?.durationMs ?? 0;
 
+  // Everything the canvas needs, rebuilt only when the battle itself changes.
+  // Identity resolution and the per-match separation are not cheap enough to
+  // run per frame, and none of it depends on the clock.
+  const stage = useMemo(
+    () =>
+      buildStage({
+        battleId: snapshot?.game?.id ?? "battle",
+        result,
+        battleStartedAt: startedAt,
+        players: (snapshot?.players ?? []).map((p) => ({
+          id: p.id,
+          nickname: p.nickname,
+          formation: p.formation,
+          colorHex: playerColor(p.colorIndex).hex,
+        })),
+        charactersById,
+      }),
+    [snapshot?.game?.id, snapshot?.players, result, startedAt, charactersById],
+  );
+
+  // Respect the viewer's own setting. Read once — it is a preference, not a
+  // per-frame decision.
+  const [calmMotion, setCalmMotion] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setCalmMotion(query.matches);
+    const onChange = () => setCalmMotion(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  // The HUD's clock. It samples the *same* expression the canvas does, at a
+  // tenth of the rate: there is one definition of "how far into the battle we
+  // are" and both the feed and the arena read it. A second expression here
+  // would drift from the canvas the first time either was adjusted.
   useEffect(() => {
     if (!startedAt) return;
-    const start = new Date(startedAt).getTime();
-    const id = setInterval(() => setElapsed(Math.max(0, serverNow() - start)), 90);
+    const id = setInterval(
+      () => setElapsed(elapsedFor(startedAt, serverNow(), duration)),
+      90,
+    );
     return () => clearInterval(id);
-  }, [startedAt, serverNow]);
+  }, [startedAt, serverNow, duration]);
 
   const visible = useMemo(
     () => (result ? result.log.filter((e) => e.atMs <= elapsed) : []),
@@ -134,6 +181,25 @@ export function BattleStage({
           style={{ width: `${progress}%` }}
         />
       </div>
+
+      {/*
+        The arena. It reads the same server clock this component uses for the
+        feed, sampled per frame inside the renderer rather than per React
+        render — the canvas must not sit behind reconciliation.
+      */}
+      {stage ? (
+        <Panel>
+          <BattleCanvas
+            className="aspect-video w-full rounded-xl bg-[#0b1220]"
+            replay={stage.replay}
+            art={stage.art}
+            interactions={stage.interactions}
+            teamColors={stage.teamColors}
+            reducedMotion={calmMotion}
+            elapsedMs={() => elapsedFor(startedAt, serverNow(), duration)}
+          />
+        </Panel>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-2">
