@@ -220,6 +220,15 @@ export interface BattleLogEntry {
   targetId?: string;
   targetTeamId?: string;
   damage?: number;
+  /**
+   * The target's HP after this event, as the simulation itself saw it.
+   *
+   * Reported by the engine, never recomputed downstream — a renderer that
+   * derived HP by subtracting damage would be a second source of truth, and
+   * would silently disagree the first time the engine changed. Absent on
+   * events that do no damage, and on battles simulated before V5.
+   */
+  hpAfter?: number;
 }
 
 export interface CombatantResult {
@@ -232,6 +241,15 @@ export interface CombatantResult {
   survived: boolean;
   /** 0..100 remaining hp percentage. */
   survivalPct: number;
+  /**
+   * The HP this character started the battle with, after crossover
+   * normalisation, formation, map and event modifiers.
+   *
+   * Exposed rather than recalculated: it is the denominator a health bar
+   * needs, and the only place it can be honestly derived is inside the
+   * simulation that already did so. Absent on pre-V5 battles.
+   */
+  maxHp?: number;
   /** Composite performance score, 0..100+. */
   performance: number;
   price: number;
@@ -254,6 +272,14 @@ export interface TeamResult {
 
 export interface BattleResult {
   seed: string;
+  /**
+   * Which version of the battle rules produced this result.
+   *
+   * A stable constant, bumped by hand when the simulation's behaviour changes,
+   * so a replay recorded today can still be rendered correctly after the
+   * engine is retuned. Absent on battles stored before V5.
+   */
+  rulesVersion?: number;
   mapId: string;
   eventId: string;
   /** Categories that were in play. */

@@ -47,6 +47,16 @@ const MAX_STEP_MS = 520;
 const POINTS_TABLE = [3, 2, 1, 0];
 
 /**
+ * Which version of these rules is in force.
+ *
+ * Bumped by hand whenever the simulation's *behaviour* changes — damage
+ * maths, RNG draws, turn ordering, formation or map influence. Not a
+ * timestamp and not a deployment version: a replay needs to know which rules
+ * produced it, and that only changes when somebody changes the rules.
+ */
+export const RULES_VERSION = 1;
+
+/**
  * The shape V4 asks a battle to have. Rounds are mapped onto these after the
  * fight, because how long a battle ran is not known until it stops — a
  * three-round rout and a fourteen-round grind both deserve an opening and a
@@ -495,6 +505,10 @@ export function simulateBattle(input: SimulateInput): BattleResult {
         targetId: target.characterId,
         targetTeamId: target.playerId,
         damage: dealt,
+        // Floored, because the engine floors it on the very next lines when
+        // the target dies. Reporting -7 HP would be reporting an intermediate
+        // value the simulation itself never considers real.
+        hpAfter: Math.max(0, target.hp),
       });
 
       if (target.hp <= 0) {
@@ -657,6 +671,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
       specials: c.specials,
       survived: c.hp > 0,
       survivalPct,
+      maxHp: c.maxHp,
       performance,
       price: c.price,
       valueScore: Math.round((performance / Math.max(1, c.price)) * 100) / 100,
@@ -704,6 +719,7 @@ export function simulateBattle(input: SimulateInput): BattleResult {
 
   return {
     seed,
+    rulesVersion: RULES_VERSION,
     mapId: map.id,
     eventId: event.id,
     categoryIds,
