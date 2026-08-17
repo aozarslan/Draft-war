@@ -67,7 +67,6 @@ function input(over: Partial<StageInput> = {}): StageInput {
   return {
     battleId: "game-1",
     result: battle("stage-1"),
-    battleStartedAt: STARTED_AT,
     players: [
       { id: "player-a", nickname: "Ege", formation: "AGGRESSIVE", colorHex: playerColor(0).hex },
       { id: "player-b", nickname: "Mikail", formation: "DEFENSIVE", colorHex: playerColor(1).hex },
@@ -123,8 +122,13 @@ describe("nothing to draw yet", () => {
     expect(buildStage(input({ result: null }))).toBeNull();
   });
 
-  it("builds nothing before the server has stamped a start time", () => {
-    expect(buildStage(input({ battleStartedAt: null }))).toBeNull();
+  it("leaves the start-time question to the caller", () => {
+    // `buildStage` deliberately knows nothing about clocks: a finished match
+    // served over a shared link has no `battleStartedAt` and must still stage.
+    // `BattleStage` withholds the result until the server has stamped one.
+    const stage = buildStage(input());
+    expect(stage).not.toBeNull();
+    expect(elapsedFor(null, STARTED_MS, stage!.durationMs)).toBe(0);
   });
 
   it("builds nothing from a result with no combatants", () => {

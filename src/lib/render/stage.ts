@@ -15,8 +15,8 @@
  * identities are a presentation detail.
  */
 
-import { toReplay, type Replay } from "@/lib/game/replay";
-import type { BattleResult, Character } from "@/lib/game/types";
+import { toReplay, type ProjectableResult, type Replay } from "@/lib/game/replay";
+import type { Character } from "@/lib/game/types";
 import { artFor } from "./archetypes";
 import type { CharacterArt } from "./assets";
 import { disambiguate } from "./identity";
@@ -31,9 +31,15 @@ export interface StagePlayer {
 
 export interface StageInput {
   battleId: string;
-  result: BattleResult | null;
-  /** ISO timestamp the server recorded when the battle phase opened. */
-  battleStartedAt: string | null;
+  /**
+   * The stored result, or the subset of it a public payload carries.
+   *
+   * Typed structurally so a finished match served over `/api/match/:id` can be
+   * staged by this same function. A live room passes the whole `BattleResult`;
+   * a shared link passes fewer fields of the same authoritative record. There
+   * is one stage builder, and therefore one place where a scene comes from.
+   */
+  result: ProjectableResult | null;
   players: StagePlayer[];
   charactersById: Record<string, Character>;
 }
@@ -55,7 +61,11 @@ export interface Stage {
  * state the game already shows.
  */
 export function buildStage(input: StageInput): Stage | null {
-  if (!input.result || !input.battleStartedAt) return null;
+  // Deliberately no clock here. Whether a battle has started is the caller's
+  // question — a live room asks it of `battleStartedAt`, a finished match does
+  // not need to ask it at all — and a stage that refused to build without a
+  // server timestamp could not serve a shared replay.
+  if (!input.result) return null;
   if (input.result.combatants.length === 0) return null;
 
   const replay = toReplay(input.result, {

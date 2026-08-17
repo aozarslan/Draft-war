@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getCategory } from "@/lib/game/categories";
+import { CHARACTERS } from "@/lib/game/characters";
 import { playerColor } from "@/lib/game/colors";
 import { draftEfficiency, efficiencyLabel } from "@/lib/game/archetypes";
 import { getFormation } from "@/lib/game/formations";
+import { useLocalPlayback } from "@/lib/client/useLocalPlayback";
+import { buildStage } from "@/lib/render/stage";
+import { summaryOf } from "@/lib/render/summary";
+import { BattleCanvas } from "@/components/BattleCanvas";
+import { BattleSummaryCard } from "@/components/BattleSummaryCard";
 import { Avatar } from "@/components/ProfileBadge";
 import { EmptyState, LoadingScreen, Panel, SectionTitle } from "@/components/ui";
+import type { ProjectableResult } from "@/lib/game/replay";
 
 interface PublicTeam {
   playerId: string;
@@ -32,13 +39,16 @@ interface Payload {
   mapId: string | null;
   eventId: string | null;
   teams: PublicTeam[];
-  result: {
-    winnerPlayerId: string;
-    upset: boolean;
-    turningPoint: { text: string } | null;
-    mvp: { characterId: string; performance: number } | null;
-    teams: { playerId: string; rank: number; teamRating: number; winProbability: number }[];
-  };
+  /**
+   * The authoritative result, as much of it as the endpoint forwards.
+   *
+   * Deliberately typed as the shape the endpoint really sends rather than as
+   * the projection's input: the battlefield fields live at the *top* level of
+   * the payload, not inside `result`, and annotating this as a
+   * `ProjectableResult` asserted otherwise — a lie TypeScript then had no way
+   * to catch. `projectable()` below does the joining, in one visible place.
+   */
+  result: Omit<ProjectableResult, "categoryIds" | "mapId" | "eventId">;
   moments: {
     averagePrice?: number;
     bargain?: { characterId: string; nickname: string; price: number } | null;
@@ -90,6 +100,9 @@ export function PublicMatch({ gameId }: { gameId: string }) {
 
   return (
     <div className="space-y-4">
+      <PublicReplay data={data} />
+      <PublicSummary data={data} />
+
       <Panel accent={playerColor(winner?.colorIndex ?? 0).hex} className="overflow-hidden">
         <div className="px-5 py-6 text-center">
           <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">
@@ -206,4 +219,135 @@ export function PublicMatch({ gameId }: { gameId: string }) {
       </Link>
     </div>
   );
+}
+
+/**
+ * The battle itself, played back locally.
+ *
+ * Everything here is assembled by the *same* `buildStage` the live room uses,
+ * so the scene at a given elapsed is the scene at that elapsed — there is one
+ * renderer and one replay format. Only the clock differs: a finished match has
+ * nobody to stay in step with, so it gets play, pause, restart and a scrub bar
+ * instead of the server's timestamp.
+ */
+/**
+ * The payload's two halves, joined into what the projection consumes.
+ *
+ * The endpoint reports the battlefield alongside the match and the result
+ * inside it; the projection wants them together. Doing that here, once, keeps
+ * the joining honest and keeps `buildStage` the only thing that knows how to
+ * make a scene.
+ */
+function projectable(data: Payload): ProjectableResult {
+  return {
+    ...data.result,
+    categoryIds: data.categoryIds,
+    mapId: data.mapId ?? "",
+    eventId: data.eventId ?? "",
+  };
+}
+
+function PublicReplay({ data }: { data: Payload }) {
+  const charactersById = useMemo(
+    () => Object.fromEntries(CHARACTERS.map((c) => [c.id, c])),
+    [],
+  );
+
+  const stage = useMemo(
+    () =>
+      buildStage({
+        battleId: data.gameId,
+        result: projectable(data),
+        players: data.teams.map((t) => ({
+          id: t.playerId,
+          nickname: t.username ?? t.nickname,
+          formation: t.formation,
+          colorHex: playerColor(t.colorIndex).hex,
+        })),
+        charactersById,
+      }),
+    [data, charactersById],
+  );
+
+  const playback = useLocalPlayback(stage?.durationMs ?? 0);
+
+  // A payload from before the endpoint forwarded `durationMs` has nothing to
+  // play back against. The rest of the page still works; only the arena is
+  // withheld, which is better than a canvas stuck on frame zero.
+  //
+  // Written as `!(x > 0)` rather than `x <= 0` on purpose: the missing field
+  // arrives as `undefined`, and `undefined <= 0` is false, so the tidier
+  // comparison would have waved it straight through.
+  if (!stage || !(stage.durationMs > 0)) return null;
+
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+
+  return (
+    <Panel className="overflow-hidden">
+      <BattleCanvas
+        className="aspect-video w-full bg-[#0b1220]"
+        replay={stage.replay}
+        art={stage.art}
+        interactions={stage.interactions}
+        teamColors={stage.teamColors}
+        elapsedMs={playback.elapsedMs}
+      />
+      <div className="flex items-center gap-3 p-3">
+        <button
+          className="btn btn-ghost shrink-0"
+          onClick={playback.finished ? playback.restart : playback.toggle}
+        >
+          {playback.finished ? "↻ Replay" : playback.playing ? "❚❚ Pause" : "▶ Play"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={stage.durationMs}
+          value={Math.min(playback.displayMs, stage.durationMs)}
+          onChange={(e) => playback.seek(Number(e.target.value))}
+          className="flex-1"
+          aria-label="Scrub the battle"
+        />
+        <span className="shrink-0 font-mono text-[11px] text-white/40">
+          {seconds(playback.displayMs)} / {seconds(stage.durationMs)}
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The same summary the results screen shows, from the same projection.
+ *
+ * A shared match and a freshly finished one describe the battle identically
+ * because they ask the same function; the alternative is two summaries that
+ * quietly drift apart, and the shared one is the copy strangers read.
+ */
+function PublicSummary({ data }: { data: Payload }) {
+  const summary = useMemo(() => {
+    const stage = buildStage({
+      battleId: data.gameId,
+      result: projectable(data),
+      players: data.teams.map((t) => ({
+        id: t.playerId,
+        nickname: t.username ?? t.nickname,
+        formation: t.formation,
+        colorHex: playerColor(t.colorIndex).hex,
+      })),
+      charactersById: {},
+    });
+    return stage ? summaryOf(stage.replay) : null;
+  }, [data]);
+
+  const colorOf = (playerId: string) =>
+    playerColor(data.teams.find((t) => t.playerId === playerId)?.colorIndex ?? 0).hex;
+
+  // The catalogue's own name, not the id with its prefix filed off: `pretty`
+  // turns "video-games-dante" into "games dante", which is fine in a dense
+  // roster list and wrong as the headline naming the player of the match.
+  const nameOf = (characterId: string) =>
+    CHARACTERS.find((c) => c.id === characterId)?.name ?? pretty(characterId);
+
+  if (!summary) return null;
+  return <BattleSummaryCard summary={summary} nameOf={nameOf} colorOf={colorOf} />;
 }

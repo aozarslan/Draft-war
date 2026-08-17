@@ -88,6 +88,8 @@ export interface ReplayTeam {
   nickname: string;
   formation: FormationId;
   rank: number;
+  /** League points the engine awarded for that finishing position. */
+  points: number;
   winProbability: number;
   /**
    * Which side of the arena this team occupies, from the seating order.
@@ -125,6 +127,38 @@ export interface Replay {
   upset: boolean;
   turningPoint: BattleResult["turningPoint"];
   mvp: BattleResult["mvp"];
+  /**
+   * The engine's own award picks, copied verbatim when the source carried
+   * them. Optional because a payload may not forward them; a summary omits
+   * the section rather than working them out for itself.
+   */
+  awards?: BattleResult["awards"];
+}
+
+/**
+ * The parts of a stored result this projection actually reads.
+ *
+ * Declared structurally rather than taking `BattleResult` whole, because a
+ * finished match served over the public endpoint arrives as a subset of the
+ * stored blob — the same authoritative fields, fewer of them. Naming exactly
+ * what is consumed means the public payload can be checked against this type
+ * instead of being cast into shape.
+ */
+export interface ProjectableResult {
+  seed: string;
+  mapId: string;
+  eventId: string;
+  categoryIds: string[];
+  durationMs: number;
+  rulesVersion?: number;
+  log: BattleResult["log"];
+  teams: BattleResult["teams"];
+  combatants: BattleResult["combatants"];
+  winnerPlayerId: string;
+  upset?: boolean;
+  turningPoint: BattleResult["turningPoint"];
+  mvp: BattleResult["mvp"];
+  awards?: BattleResult["awards"];
 }
 
 export interface ReplayContext {
@@ -219,7 +253,7 @@ function isEmphatic(kind: ReplayEvent["kind"]): boolean {
  * @param context Names and formations, which live on the player rows rather
  *                than in the result.
  */
-export function toReplay(result: BattleResult, context: ReplayContext): Replay {
+export function toReplay(result: ProjectableResult, context: ReplayContext): Replay {
   const byPlayer = new Map(context.players.map((p) => [p.playerId, p]));
 
   // A battle is renderable with health bars only if the engine reported the
@@ -287,6 +321,7 @@ export function toReplay(result: BattleResult, context: ReplayContext): Replay {
     nickname: byPlayer.get(t.playerId)?.nickname ?? "—",
     formation: ((byPlayer.get(t.playerId)?.formation ?? "BALANCED") as FormationId),
     rank: t.rank,
+    points: t.points,
     winProbability: t.winProbability,
     seat: seatOf.get(t.playerId) ?? 0,
     synergies: t.synergies.map((g) => ({ ...g })),
@@ -312,6 +347,7 @@ export function toReplay(result: BattleResult, context: ReplayContext): Replay {
     upset: Boolean(result.upset),
     turningPoint: result.turningPoint,
     mvp: result.mvp,
+    ...(result.awards ? { awards: result.awards } : {}),
   };
 }
 

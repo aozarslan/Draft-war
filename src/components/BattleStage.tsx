@@ -60,8 +60,9 @@ export function BattleStage({
     () =>
       buildStage({
         battleId: snapshot?.game?.id ?? "battle",
-        result,
-        battleStartedAt: startedAt,
+        // The live guard lives here rather than in `buildStage`: a stage that
+        // required a server timestamp could not serve a finished match.
+        result: startedAt ? result : null,
         players: (snapshot?.players ?? []).map((p) => ({
           id: p.id,
           nickname: p.nickname,

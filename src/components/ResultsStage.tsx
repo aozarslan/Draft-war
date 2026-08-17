@@ -8,6 +8,9 @@ import { getCategory } from "@/lib/game/categories";
 import { draftEfficiency, efficiencyLabel } from "@/lib/game/archetypes";
 import { getFormation as formationOf } from "@/lib/game/formations";
 import { play } from "@/lib/client/sound";
+import { buildStage } from "@/lib/render/stage";
+import { summaryOf } from "@/lib/render/summary";
+import { BattleSummaryCard } from "./BattleSummaryCard";
 import { CharacterArt } from "./CharacterArt";
 import { Panel, SectionTitle } from "./ui";
 import { MatchRewards } from "./MatchRewards";
@@ -56,6 +59,27 @@ export function ResultsStage({
     }
     return lines.join("\n");
   }, [snapshot, result, charactersById, maps, events]);
+
+  /**
+   * The battle in one card, from the same projection the shared match page
+   * uses. Built through `buildStage` rather than by reaching into the result
+   * directly, so a summary can never see a field the replay does not carry.
+   */
+  const battleSummary = useMemo(() => {
+    if (!snapshot || !result) return null;
+    const stage = buildStage({
+      battleId: snapshot.game?.id ?? "battle",
+      result,
+      players: snapshot.players.map((p) => ({
+        id: p.id,
+        nickname: p.nickname,
+        formation: p.formation,
+        colorHex: playerColor(p.colorIndex).hex,
+      })),
+      charactersById: {},
+    });
+    return stage ? summaryOf(stage.replay) : null;
+  }, [snapshot, result]);
 
   if (!snapshot || !result) return null;
 
@@ -113,6 +137,27 @@ export function ResultsStage({
 
   return (
     <div className="space-y-4">
+      {/* ----------------------------------------------------------------
+          What happened, before the detail.
+
+          The screen below is information-complete but not time-ordered: a
+          player who wants to know *why* they won has to read four panels to
+          find out. This band answers it first, from the same projection the
+          shared match page uses, and everything that was already here stays
+          exactly where it was.
+         ---------------------------------------------------------------- */}
+      {battleSummary ? (
+        <BattleSummaryCard
+          summary={battleSummary}
+          nameOf={(id) => charactersById[id]?.name ?? id}
+          colorOf={(playerId) =>
+            playerColor(
+              snapshot.players.find((p) => p.id === playerId)?.colorIndex ?? 0,
+            ).hex
+          }
+        />
+      ) : null}
+
       {/* ---------- Champion ---------- */}
       <Panel className="overflow-hidden" accent={winnerColor?.hex}>
         <div

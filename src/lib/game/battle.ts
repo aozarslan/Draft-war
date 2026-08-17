@@ -75,6 +75,16 @@ const PHASES = [
   { id: "FINAL_CLASH", label: "Final clash" },
 ] as const;
 
+/**
+ * The label the last phase reports under.
+ *
+ * Exported so presentation can recognise the closing rounds from the divider
+ * the engine already wrote, instead of matching a literal string. The same
+ * lesson as the synergy labels in M7: match the producer's own vocabulary, or
+ * the first rename breaks it silently.
+ */
+export const FINAL_PHASE_LABEL = PHASES[PHASES.length - 1].label;
+
 /** Which phase a round belongs to, given how many rounds the battle lasted. */
 function phaseOfRound(round: number, totalRounds: number): (typeof PHASES)[number] {
   if (totalRounds <= 1) return PHASES[0];
