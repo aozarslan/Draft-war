@@ -84,6 +84,53 @@ export interface CharacterArt {
 type Slot = { image: HTMLImageElement; ready: boolean; failed: boolean };
 
 /**
+ * Recolours a greyscale sheet with a character's palette.
+ *
+ * Sheets are drawn without colour so that one body plan can serve forty
+ * animals: a lion and a wolf are the same silhouette in different palettes.
+ * Multiplying preserves the shading and the dark outline instead of flattening
+ * the sprite into a silhouette, which is what a plain fill would do.
+ *
+ * The result is cached per (sheet, palette) — there are far fewer palettes in a
+ * battle than there are frames drawn per second.
+ */
+function tintSheet(
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+  frameHeight: number,
+  palette: [string, string],
+): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, 0, 0);
+
+  ctx.globalCompositeOperation = "multiply";
+  // The gradient repeats per row of frames, top-down. Spanning it across the
+  // whole sheet would make one animal a different colour in each frame, which
+  // reads as flickering the moment a clip plays.
+  for (let top = 0; top < height; top += frameHeight) {
+    const gradient = ctx.createLinearGradient(0, top, 0, top + frameHeight);
+    gradient.addColorStop(0, palette[1]);
+    gradient.addColorStop(1, palette[0]);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, top, width, frameHeight);
+  }
+
+  // Multiply paints whole rectangles; this clips them back to the sprite.
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(image, 0, 0);
+
+  return canvas;
+}
+
+/**
  * Holds decoded images for one battle.
  *
  * Deliberately a plain class and not a React hook or a module singleton: the
@@ -93,6 +140,7 @@ type Slot = { image: HTMLImageElement; ready: boolean; failed: boolean };
 export class AssetStore {
   private readonly art = new Map<string, CharacterArt>();
   private readonly images = new Map<string, Slot>();
+  private readonly tints = new Map<string, HTMLCanvasElement | null>();
   private onReady: (() => void) | null = null;
 
   constructor(art: CharacterArt[] = []) {
@@ -130,7 +178,7 @@ export class AssetStore {
       if (slot?.ready) {
         return {
           kind: "SHEET",
-          image: slot.image,
+          image: this.tinted(art) ?? slot.image,
           sheet: art.sheet,
           frame: frameAt(clip, progress),
           row: clip.row,
@@ -168,7 +216,29 @@ export class AssetStore {
   dispose(): void {
     for (const slot of this.images.values()) slot.image.src = "";
     this.images.clear();
+    this.tints.clear();
     this.onReady = null;
+  }
+
+  /** The character's sheet in its own colours, built once and kept. */
+  private tinted(art: CharacterArt): HTMLCanvasElement | null {
+    if (!art.sheet) return null;
+    const key = `${art.sheet.src}|${art.palette[0]}|${art.palette[1]}`;
+    const cached = this.tints.get(key);
+    if (cached !== undefined) return cached;
+
+    const slot = this.images.get(art.sheet.src);
+    if (!slot?.ready) return null;
+
+    const canvas = tintSheet(
+      slot.image,
+      slot.image.naturalWidth || art.sheet.frameWidth,
+      slot.image.naturalHeight || art.sheet.frameHeight,
+      art.sheet.frameHeight,
+      art.palette,
+    );
+    this.tints.set(key, canvas);
+    return canvas;
   }
 
   private load(src: string): Slot | null {

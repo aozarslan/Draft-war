@@ -25,6 +25,8 @@ import { FORMATIONS, type FormationId } from "@/lib/game/formations";
 import { toReplay } from "@/lib/game/replay";
 import { PLAYER_COLORS } from "@/lib/game/colors";
 import { BattleRenderer } from "@/lib/render/canvas";
+import { VISUAL_ARCHETYPES, artFor, visualArchetypeFor } from "@/lib/render/archetypes";
+import { ArchetypePreview } from "@/components/dev/ArchetypePreview";
 import type { CharacterArt } from "@/lib/render/assets";
 
 const BANDS = computeAxisBands(CHARACTERS);
@@ -42,6 +44,7 @@ export default function RendererHarness() {
   const [speed, setSpeed] = useState(1);
   const [portraits, setPortraits] = useState(true);
   const [legacy, setLegacy] = useState(false);
+  const [sheets, setSheets] = useState(true);
   const [elapsed, setElapsed] = useState(0);
 
   const categories = useMemo(
@@ -124,13 +127,13 @@ export default function RendererHarness() {
 
   const art = useMemo<CharacterArt[]>(
     () =>
-      CHARACTERS.map((c) => ({
-        characterId: c.id,
-        name: c.name,
-        palette: c.palette,
-        portraitUrl: portraits ? (thumbnails[c.id] ?? c.thumbnailUrl) : null,
-      })),
-    [portraits, thumbnails],
+      CHARACTERS.map((c) => {
+        const resolved = artFor(c, portraits ? (thumbnails[c.id] ?? c.thumbnailUrl) : null);
+        // The sheet always wins over a portrait, so this toggle is the only way
+        // to compare an animated archetype against the artwork it replaces.
+        return sheets ? resolved : { ...resolved, sheet: undefined };
+      }),
+    [portraits, thumbnails, sheets],
   );
 
   // One renderer per replay. It reads the clock we own, so scrubbing is just
@@ -189,12 +192,22 @@ export default function RendererHarness() {
 
   const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
+  // The first character in the battle that actually has a sheet, so the
+  // preview shows the archetype this replay is exercising.
+  const previewCharacter = replay.combatants
+    .map((c) => CHARACTERS.find((ch) => ch.id === c.characterId))
+    .find((ch) => ch && art.find((a) => a.characterId === ch.id)?.sheet);
+  const previewArt = previewCharacter
+    ? art.find((a) => a.characterId === previewCharacter.id)
+    : undefined;
+
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-4 pb-24">
       <header>
         <h1 className="text-xl font-bold text-slate-100">Renderer harness</h1>
         <p className="text-sm text-slate-400">
-          Canvas 2D motoru. Sanat varlıkları yok — portre/palet fallback&apos;i ile çiziliyor.
+          Canvas 2D motoru. Sprite sheet olan arketipler çizilir; olmayanlar portre,
+          o da yoksa palet diski ile.
         </p>
       </header>
 
@@ -295,6 +308,7 @@ export default function RendererHarness() {
 
         <label className="flex items-end gap-2 pb-1.5">
           <input
+            className="size-4 shrink-0"
             type="checkbox"
             checked={portraits}
             onChange={(e) => setPortraits(e.target.checked)}
@@ -304,13 +318,39 @@ export default function RendererHarness() {
 
         <label className="flex items-end gap-2 pb-1.5">
           <input
+            className="size-4 shrink-0"
             type="checkbox"
             checked={legacy}
             onChange={(e) => setLegacy(e.target.checked)}
           />
           <span className="text-slate-300">Eski maç (V4)</span>
         </label>
+
+        <label className="flex items-end gap-2 pb-1.5">
+          <input
+            className="size-4 shrink-0"
+            type="checkbox"
+            checked={sheets}
+            onChange={(e) => setSheets(e.target.checked)}
+          />
+          <span className="text-slate-300">Sprite sheet</span>
+        </label>
       </div>
+
+      <section className="space-y-2 border-t border-slate-800 pt-4">
+        <h2 className="text-sm font-semibold text-slate-200">
+          Arketip: {previewArt ? visualArchetypeFor(previewCharacter!) : "—"}
+          {previewArt && VISUAL_ARCHETYPES[visualArchetypeFor(previewCharacter!)].sheet === null
+            ? " (aile fallback'i ile çiziliyor)"
+            : ""}
+        </h2>
+        <p className="text-xs text-slate-500">
+          {previewCharacter?.name} paletiyle boyanmış, her klip döngüde.
+        </p>
+        <div className="overflow-x-auto">
+          {previewArt ? <ArchetypePreview art={previewArt} /> : null}
+        </div>
+      </section>
 
       <p className="text-xs text-slate-500">
         replayVersion {replay.replayVersion} · rulesVersion {replay.rulesVersion ?? "—"} ·{" "}

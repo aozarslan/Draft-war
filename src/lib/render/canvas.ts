@@ -17,6 +17,7 @@
 
 import type { Replay } from "@/lib/game/replay";
 import { AssetStore, type CharacterArt } from "./assets";
+import { SHEET_GROUND_RATIO } from "./archetypes";
 import { ParticlePool } from "./particles";
 import { ARENA, sceneAt, type Scene, type SceneCombatant } from "./scene";
 import { clamp01, easeOutBack, easeOutCubic, easeOutQuad } from "./easing";
@@ -34,6 +35,8 @@ export interface BattleRendererOptions {
 }
 
 const SPRITE_SIZE = 22; // arena units
+/** A sprite frame is mostly empty, so it is drawn larger than the disc it replaces. */
+const SHEET_SCALE = 1.5;
 const BAR_WIDTH = 22;
 const BAR_HEIGHT = 3;
 
@@ -194,18 +197,39 @@ export class BattleRenderer {
     ctx.globalAlpha = c.opacity;
 
     // Shadow first: it is what stops a sprite floating.
+    const feetY = y + SPRITE_SIZE / 2;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
-    ctx.ellipse(x, y + SPRITE_SIZE / 2, SPRITE_SIZE / 2.4, SPRITE_SIZE / 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, feetY, SPRITE_SIZE / 2.4, SPRITE_SIZE / 6, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // A team-coloured ring on the ground, under every combatant regardless of
+    // how it is drawn. Sprites are tinted with the *character's* palette, which
+    // says nothing about whose side they are on — without this, two teams of
+    // animals from one category are indistinguishable.
+    const team = this.teamColors[c.teamId];
+    if (team && c.alive) {
+      ctx.strokeStyle = team;
+      ctx.globalAlpha = c.opacity * 0.85;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(x, feetY, SPRITE_SIZE / 2.4, SPRITE_SIZE / 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = c.opacity;
+    }
 
     const sprite = this.assets.spriteFor(c.characterId, c.animation, c.animationProgress);
     const half = SPRITE_SIZE / 2;
 
     if (sprite.kind === "SHEET") {
       const { sheet, frame, row, image } = sprite;
+      // Anchored by the ground line, not the centre: a frame is mostly empty
+      // air above the animal, so centring it leaves the sprite hovering over
+      // its own shadow.
+      const drawSize = SPRITE_SIZE * SHEET_SCALE;
+      const feet = y + SPRITE_SIZE / 2;
       ctx.save();
-      ctx.translate(x, y);
+      ctx.translate(x, feet - SHEET_GROUND_RATIO * drawSize);
       ctx.scale(c.facing, 1);
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(
@@ -214,10 +238,10 @@ export class BattleRenderer {
         row * sheet.frameHeight,
         sheet.frameWidth,
         sheet.frameHeight,
-        -half,
-        -half,
-        SPRITE_SIZE,
-        SPRITE_SIZE,
+        -drawSize / 2,
+        0,
+        drawSize,
+        drawSize,
       );
       ctx.restore();
     } else if (sprite.kind === "PORTRAIT") {

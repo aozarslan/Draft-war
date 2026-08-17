@@ -1,0 +1,235 @@
+/**
+ * ---------------------------------------------------------------------------
+ * VISUAL ARCHETYPES
+ * ---------------------------------------------------------------------------
+ * Body plans, and which sprite sheet draws them.
+ *
+ * These are **not** the combat archetypes in `src/lib/game/archetypes.ts`.
+ * That file answers "how does this character fight" (TANK, ASSASSIN, …) and
+ * feeds nothing but labels. This one answers "how many legs does it have", and
+ * feeds nothing but the renderer. A tank can be a rhino or a knight; keeping
+ * the two apart is what stops artwork from leaking into balance, or a balance
+ * change from silently redrawing the arena.
+ *
+ * The mapping is derived, not authored 268 times: category and tags decide it,
+ * and a short override list fixes the ones a rule cannot get right. That way a
+ * new character in a known category is drawn correctly the day it is added.
+ *
+ * Only `quadruped_medium` has artwork today. Everything else resolves to an
+ * archetype with no sheet, which the asset store treats exactly as it treats a
+ * missing image: portrait first, palette disc last. Nothing breaks; things
+ * simply look less finished until their sheet lands.
+ */
+
+import type { AnimationHint } from "@/lib/game/replay";
+import type { CharacterArt, SpriteClip, SpriteSheet } from "./assets";
+
+export type VisualArchetypeId =
+  | "humanoid_medium"
+  | "humanoid_large"
+  | "quadruped_medium"
+  | "quadruped_large"
+  | "serpentine"
+  | "winged"
+  | "aquatic";
+
+/**
+ * Where a sprite came from, recorded next to the sprite itself.
+ *
+ * This is deliberately in code rather than in a table: it ships in the same
+ * commit as the artwork, so a sheet cannot arrive without its provenance, and
+ * the loader can enforce `approved` without a round trip. A database table
+ * becomes worth adding when assets are served from the database — not before.
+ */
+export interface AssetProvenance {
+  sourceType: "ORIGINAL" | "PUBLIC_DOMAIN" | "LICENSED" | "USER_CREATED";
+  /** For public-domain work, the exact edition. Null when authored here. */
+  sourceReference: string | null;
+  creator: string;
+  license: string;
+  version: number;
+  /** The renderer loads approved sheets only. */
+  approved: boolean;
+}
+
+export interface VisualArchetype {
+  id: VisualArchetypeId;
+  label: string;
+  /** Null until this body plan has artwork. */
+  sheet: SpriteSheet | null;
+  provenance: AssetProvenance | null;
+}
+
+/**
+ * The clip layout every generated sheet follows.
+ *
+ * Exported because `scripts/generate-sprites.ts` draws from this exact object.
+ * One declaration, two consumers, so a sheet can never disagree with the
+ * manifest that indexes it — the same tripwire the SQL seed generators use.
+ */
+export const SHEET_CLIPS: Record<AnimationHint, SpriteClip> = {
+  IDLE: { row: 0, frames: 4, loop: true },
+  ATTACK: { row: 1, frames: 6, loop: false },
+  CAST: { row: 2, frames: 6, loop: false },
+  GUARD: { row: 3, frames: 4, loop: false },
+  IMPACT: { row: 4, frames: 3, loop: false },
+  DEATH: { row: 5, frames: 6, loop: false },
+  CHEER: { row: 6, frames: 4, loop: true },
+  NONE: { row: 0, frames: 4, loop: true },
+};
+
+export const FRAME_SIZE = 32;
+
+/**
+ * Where the feet are, as a fraction of the frame height.
+ *
+ * Sprites are anchored by their ground line rather than their centre: a frame
+ * is mostly empty air above the animal, so centring it makes the sprite hover
+ * above its own shadow. Declared here because both the generator and the draw
+ * layer have to agree, and a disagreement of two pixels is very visible.
+ */
+export const SHEET_GROUND_RATIO = 27 / 32;
+
+/** Widest clip decides the sheet width; row count decides its height. */
+export const SHEET_COLUMNS = Math.max(
+  ...Object.values(SHEET_CLIPS).map((c) => c.frames),
+);
+export const SHEET_ROWS =
+  Math.max(...Object.values(SHEET_CLIPS).map((c) => c.row)) + 1;
+
+const QUADRUPED_MEDIUM: SpriteSheet = {
+  src: "/sprites/quadruped_medium.png",
+  frameWidth: FRAME_SIZE,
+  frameHeight: FRAME_SIZE,
+  clips: SHEET_CLIPS,
+};
+
+export const VISUAL_ARCHETYPES: Record<VisualArchetypeId, VisualArchetype> = {
+  humanoid_medium: { id: "humanoid_medium", label: "Humanoid", sheet: null, provenance: null },
+  humanoid_large: { id: "humanoid_large", label: "Large humanoid", sheet: null, provenance: null },
+  quadruped_medium: {
+    id: "quadruped_medium",
+    label: "Quadruped",
+    sheet: QUADRUPED_MEDIUM,
+    provenance: {
+      sourceType: "ORIGINAL",
+      sourceReference: null,
+      creator: "DRAFT WAR — scripts/generate-sprites.ts",
+      license: "Project-owned original artwork",
+      version: 1,
+      approved: true,
+    },
+  },
+  quadruped_large: { id: "quadruped_large", label: "Large quadruped", sheet: null, provenance: null },
+  serpentine: { id: "serpentine", label: "Serpentine", sheet: null, provenance: null },
+  winged: { id: "winged", label: "Winged", sheet: null, provenance: null },
+  aquatic: { id: "aquatic", label: "Aquatic", sheet: null, provenance: null },
+};
+
+/**
+ * Hand corrections.
+ *
+ * A rule over tags gets most animals right and a handful badly wrong: an
+ * ostrich is a bird that does not fly, an anaconda is a reptile with no legs,
+ * an orca is a predator with no legs either. Rather than bend the rule until it
+ * covers every exception — which makes it unreadable and still misses one —
+ * the exceptions are listed.
+ */
+export const ARCHETYPE_OVERRIDES: Record<string, VisualArchetypeId> = {
+  "animals-green-anaconda": "serpentine",
+  "animals-black-mamba": "serpentine",
+  "animals-golden-eagle": "winged",
+  "animals-common-ostrich": "humanoid_medium",
+  "animals-southern-cassowary": "humanoid_medium",
+  "animals-orca": "aquatic",
+  "animals-great-white-shark": "aquatic",
+  "animals-southern-elephant-seal": "aquatic",
+  "animals-saltwater-crocodile": "quadruped_large",
+  "animals-komodo-dragon": "quadruped_medium",
+  "animals-western-gorilla": "humanoid_large",
+};
+
+/** The minimum a character has to expose to be drawn. */
+export interface ArchetypeInput {
+  id: string;
+  categoryId: string;
+  tags: string[];
+  stats: Record<string, number>;
+}
+
+/**
+ * Everything the renderer needs for one character, in one place.
+ *
+ * This is the only function that knows both halves — the catalogue on one side,
+ * the render layer on the other — which is what keeps `assets.ts` free of any
+ * notion of categories and `characters.ts` free of any notion of sprites.
+ */
+export function artFor(
+  character: ArchetypeInput & {
+    name: string;
+    palette: [string, string];
+    thumbnailUrl?: string | null;
+  },
+  portraitOverride?: string | null,
+): CharacterArt {
+  const sheet = sheetFor(visualArchetypeFor(character));
+  return {
+    characterId: character.id,
+    name: character.name,
+    palette: character.palette,
+    portraitUrl: portraitOverride ?? character.thumbnailUrl ?? null,
+    ...(sheet ? { sheet } : {}),
+  };
+}
+
+/**
+ * Which body plan draws this character.
+ *
+ * Deterministic and total: every character resolves to something, and the same
+ * character always resolves to the same thing, so a battle cannot look
+ * different on two devices.
+ */
+export function visualArchetypeFor(character: ArchetypeInput): VisualArchetypeId {
+  const override = ARCHETYPE_OVERRIDES[character.id];
+  if (override) return override;
+
+  if (character.categoryId !== "animals") {
+    // Every other category is people-shaped. Mass is the only axis that
+    // reliably separates a brawler from a giant, and only animals report it.
+    const power = character.stats.strength ?? character.stats.power ?? 0;
+    return power >= 95 ? "humanoid_large" : "humanoid_medium";
+  }
+
+  const tags = new Set(character.tags);
+  if (tags.has("reptile")) return "quadruped_medium";
+
+  const mass = character.stats.mass ?? 0;
+  return mass >= 70 ? "quadruped_large" : "quadruped_medium";
+}
+
+/**
+ * The sheet to draw with, or null.
+ *
+ * Falls back along the body-plan family before giving up, so a large quadruped
+ * with no artwork borrows the medium one rather than dropping to a portrait —
+ * a rhino drawn slightly wrong still reads as a rhino, a disc does not.
+ */
+export function sheetFor(archetype: VisualArchetypeId): SpriteSheet | null {
+  const own = VISUAL_ARCHETYPES[archetype];
+  if (own?.sheet && own.provenance?.approved) return own.sheet;
+
+  const fallback = FAMILY_FALLBACK[archetype];
+  if (!fallback) return null;
+  const parent = VISUAL_ARCHETYPES[fallback];
+  return parent?.sheet && parent.provenance?.approved ? parent.sheet : null;
+}
+
+/**
+ * Only within a family. An orca is not a quadruped drawn slightly wrong, it is
+ * a different silhouette, and a shark on four legs reads as a bug — so aquatic,
+ * serpentine and winged have no fallback and wait for their own artwork.
+ */
+const FAMILY_FALLBACK: Partial<Record<VisualArchetypeId, VisualArchetypeId>> = {
+  quadruped_large: "quadruped_medium",
+  humanoid_large: "humanoid_medium",
+};
