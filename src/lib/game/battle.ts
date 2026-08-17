@@ -235,6 +235,17 @@ for (const category of CATEGORIES) {
   }
 }
 
+/**
+ * The label a synergy tag reports under, if it is one the game scores.
+ *
+ * Exported so presentation can map a group back to the characters in it
+ * without guessing at the label's wording — matching "Predators ×3" to the
+ * tag "predator" by string surgery worked until the first plural.
+ */
+export function synergyLabelForTag(tag: string): string | null {
+  return SYNERGY_BY_TAG.get(tag)?.label ?? null;
+}
+
 export interface SynergyResult {
   total: number;
   groups: { label: string; bonus: number }[];

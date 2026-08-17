@@ -98,6 +98,14 @@ export interface ReplayTeam {
    * on how the fight ends. Presentation only; nothing reads it but the layout.
    */
   seat: number;
+  /**
+   * The synergy groups this squad triggered, exactly as the engine reported.
+   *
+   * Copied, never recomputed. The engine applied these to the fight long
+   * before this file ran; showing them is the only thing the renderer does
+   * with them.
+   */
+  synergies: { label: string; bonus: number }[];
 }
 
 export interface Replay {
@@ -281,6 +289,7 @@ export function toReplay(result: BattleResult, context: ReplayContext): Replay {
     rank: t.rank,
     winProbability: t.winProbability,
     seat: seatOf.get(t.playerId) ?? 0,
+    synergies: t.synergies.map((g) => ({ ...g })),
   }));
 
   return {

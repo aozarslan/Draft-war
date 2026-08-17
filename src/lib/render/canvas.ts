@@ -18,6 +18,8 @@
 import type { Replay } from "@/lib/game/replay";
 import { AssetStore, type CharacterArt } from "./assets";
 import { SHEET_GROUND_RATIO } from "./archetypes";
+import type { IdentityConfig } from "./identity";
+import { cueIntensity, type Interactions } from "./interactions";
 import { ParticlePool } from "./particles";
 import {
   ARENA,
@@ -36,8 +38,18 @@ export interface BattleRendererOptions {
   clock: () => number;
   /** Team colour per playerId, from PLAYER_COLORS. */
   teamColors?: Record<string, string>;
-  /** Reduce motion: no shake, no particles. Read from the media query. */
+  /**
+   * Reduce motion.
+   *
+   * Everything that moves for effect is turned off or damped — shake, camera
+   * push, particles, letterbox slides. Everything that *carries information*
+   * stays: damage numbers, health bars, hit rings, the strike line, team
+   * colours, identity features. Calming the picture must not cost the viewer
+   * the ability to read the fight.
+   */
   reducedMotion?: boolean;
+  /** Relationship cues to show over the opening seconds. */
+  interactions?: Interactions;
 }
 
 const SPRITE_SIZE = 22; // arena units
@@ -65,6 +77,7 @@ export class BattleRenderer {
   private readonly clock: () => number;
   private readonly teamColors: Record<string, string>;
   private readonly reducedMotion: boolean;
+  private readonly interactions: Interactions | null;
 
   private frame = 0;
   private lastTs = 0;
@@ -87,6 +100,7 @@ export class BattleRenderer {
     this.clock = options.clock;
     this.teamColors = options.teamColors ?? {};
     this.reducedMotion = options.reducedMotion ?? false;
+    this.interactions = options.interactions ?? null;
     this.assets = new AssetStore(options.art ?? []);
     this.assets.setOnReady(() => {
       if (!this.running) this.renderAt(this.clock());
@@ -197,6 +211,9 @@ export class BattleRenderer {
     // World transform: letterbox, then camera.
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
+    // Reduced motion holds the camera perfectly still: no shake, no pan, no
+    // push. What the camera was communicating — *where* to look — is still
+    // carried by the strike line, the ring and the number, all of which stay.
     const cam = this.reducedMotion
       ? { x: ARENA.width / 2, y: ARENA.height / 2, zoom: 1, shake: 0 }
       : scene.camera;
@@ -210,6 +227,7 @@ export class BattleRenderer {
     const ordered = [...scene.combatants].sort((a, b) => a.y - b.y);
     for (const c of ordered) this.drawCombatant(ctx, c, scene.showHealth);
 
+    this.drawInteractions(ctx, scene);
     this.drawEffects(ctx, scene);
     if (scene.mvpCharacterId) this.drawMvp(ctx, scene);
     if (!this.reducedMotion) this.drawParticles(ctx);
@@ -252,8 +270,9 @@ export class BattleRenderer {
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
 
-    // Letterbox bars slide in from top and bottom.
-    const bar = height * 0.075 * easeOutCubic(strength);
+    // Letterbox bars slide in from top and bottom — or simply appear, held at
+    // a constant height, when motion is reduced.
+    const bar = height * 0.075 * (this.reducedMotion ? 1 : easeOutCubic(strength));
     ctx.fillStyle = "rgba(2,6,23,0.92)";
     ctx.fillRect(0, 0, width, bar);
     ctx.fillRect(0, height - bar, width, bar);
@@ -270,7 +289,9 @@ export class BattleRenderer {
     if (kind === "UPSET") {
       // A stamp that lands rather than fades: the result is unchanged, but the
       // fact that the engine called it an upset should be impossible to miss.
-      const drop = easeOutBack(clamp01(progress / 0.35));
+      // The stamp lands with an overshoot normally, and simply is there when
+      // motion is reduced — the word is the information, the bounce is not.
+      const drop = this.reducedMotion ? 1 : easeOutBack(clamp01(progress / 0.35));
       ctx.save();
       // Well clear of the victory band in the middle of the frame.
       ctx.translate(width / 2, height * 0.26);
@@ -331,10 +352,13 @@ export class BattleRenderer {
     ctx.globalAlpha = c.opacity;
 
     // Shadow first: it is what stops a sprite floating.
+    const ringScale = this.assets.identityFor(c.characterId)?.scale ?? 1;
+    const ringX = (SPRITE_SIZE * ringScale) / 2.4;
+    const ringY = (SPRITE_SIZE * ringScale) / 6;
     const feetY = y + SPRITE_SIZE / 2;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
-    ctx.ellipse(x, feetY, SPRITE_SIZE / 2.4, SPRITE_SIZE / 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, feetY, ringX, ringY, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // A team-coloured ring on the ground, under every combatant regardless of
@@ -347,20 +371,24 @@ export class BattleRenderer {
       ctx.globalAlpha = c.opacity * 0.85;
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.ellipse(x, feetY, SPRITE_SIZE / 2.4, SPRITE_SIZE / 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, feetY, ringX, ringY, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = c.opacity;
     }
 
     const sprite = this.assets.spriteFor(c.characterId, c.animation, c.animationProgress);
-    const half = SPRITE_SIZE / 2;
+    const identity = this.assets.identityFor(c.characterId);
+    // Size is part of identity: an elephant and a badger sharing one body plan
+    // should not be the same height.
+    const bodyScale = identity?.scale ?? 1;
+    const half = (SPRITE_SIZE * bodyScale) / 2;
 
     if (sprite.kind === "SHEET") {
       const { sheet, frame, row, image } = sprite;
       // Anchored by the ground line, not the centre: a frame is mostly empty
       // air above the animal, so centring it leaves the sprite hovering over
       // its own shadow.
-      const drawSize = SPRITE_SIZE * SHEET_SCALE;
+      const drawSize = SPRITE_SIZE * SHEET_SCALE * bodyScale;
       const feet = feetY;
       ctx.save();
       ctx.translate(x, feet - SHEET_GROUND_RATIO * drawSize);
@@ -412,6 +440,15 @@ export class BattleRenderer {
       ctx.stroke();
     }
 
+    // Identity layers, over the body and under the flash. Drawn rather than
+    // stamped from a sheet: six body plans times a dozen features would be
+    // seventy-odd sprite sheets, and at thirty screen pixels a horn is four
+    // lines. Everything here is positioned from the sprite's own drawn box, so
+    // it follows the lunge, the scale and the sink without extra bookkeeping.
+    if (identity && sprite.kind === "SHEET") {
+      this.drawIdentity(ctx, c, identity, x, feetY);
+    }
+
     // Hit flash, over whatever was drawn.
     if (c.flash > 0) {
       ctx.globalAlpha = c.opacity * c.flash * 0.7;
@@ -442,6 +479,285 @@ export class BattleRenderer {
       ctx.fillStyle =
         c.health > 0.5 ? "#22c55e" : c.health > 0.2 ? "#f59e0b" : "#ef4444";
       ctx.fillRect(bx, by, BAR_WIDTH * c.health, BAR_HEIGHT);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Who is allied with whom, and who shares history with whom.
+   *
+   * Shown only over the opening seconds, before the first blow. A permanent
+   * badge would sit in exactly the space the damage numbers need. The synergy
+   * bonus drawn here is the engine's own; the rivalry line is a note about the
+   * roster, and neither changes anything about the fight.
+   */
+  private drawInteractions(ctx: CanvasRenderingContext2D, scene: Scene): void {
+    if (!this.interactions) return;
+    const strength = cueIntensity(scene.elapsedMs);
+    if (strength <= 0) return;
+
+    const at = (id: string) => scene.combatants.find((c) => c.characterId === id);
+
+    ctx.save();
+
+    // Rivalry first, underneath: a thin dashed line between two opposing
+    // combatants that share a tag.
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 0.8;
+    for (const rivalry of this.interactions.rivalries) {
+      const a = at(rivalry.a);
+      const b = at(rivalry.b);
+      if (!a || !b) continue;
+      ctx.globalAlpha = strength * 0.35;
+      ctx.strokeStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Synergy: an arc linking the squad members that triggered the group, in
+    // their team's colour, with the engine's bonus written once. Labels are
+    // stacked per team — two groups on one side used to print on top of each
+    // other and neither was readable.
+    const rowByTeam = new Map<string, number>();
+    for (const cue of this.interactions.synergies) {
+      const members = cue.characterIds.map(at).filter(Boolean) as SceneCombatant[];
+      if (members.length < 2) continue;
+
+      const colour = this.teamColors[cue.teamId] ?? "#94a3b8";
+      ctx.globalAlpha = strength * 0.8;
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      members.forEach((m, i) => {
+        const y = m.y + SPRITE_SIZE / 2 + 2;
+        if (i === 0) ctx.moveTo(m.x, y);
+        else ctx.lineTo(m.x, y);
+      });
+      ctx.stroke();
+
+      for (const m of members) {
+        ctx.beginPath();
+        ctx.arc(m.x, m.y + SPRITE_SIZE / 2 + 2, 1.6, 0, Math.PI * 2);
+        ctx.fillStyle = colour;
+        ctx.fill();
+      }
+
+      const row = rowByTeam.get(cue.teamId) ?? 0;
+      rowByTeam.set(cue.teamId, row + 1);
+
+      // One column per team, not one label per group's midpoint: stacking
+      // vertically fixed the rows but two labels centred on different members
+      // still ran into each other sideways.
+      const squad = scene.combatants.filter((c) => c.teamId === cue.teamId);
+      const columnX =
+        squad.reduce((sum, c) => sum + c.x, 0) / Math.max(1, squad.length);
+      const columnY =
+        Math.max(...squad.map((c) => c.y)) + SPRITE_SIZE / 2 + 12;
+
+      ctx.globalAlpha = strength;
+      ctx.fillStyle = colour;
+      ctx.font = "bold 6px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        `${cue.label}  +${Math.round(cue.bonus * 100)}%`,
+        columnX,
+        columnY + row * 8,
+      );
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Horns, manes, markings — what tells two green quadrupeds apart.
+   *
+   * Every measurement is a fraction of the sprite's drawn box, so a feature
+   * cannot drift when the body scales, lunges or sinks. Nothing here reads a
+   * character id; it reads the configuration the identity layer resolved.
+   */
+  private drawIdentity(
+    ctx: CanvasRenderingContext2D,
+    c: SceneCombatant,
+    identity: IdentityConfig,
+    x: number,
+    feetY: number,
+  ): void {
+    const size = SPRITE_SIZE * SHEET_SCALE * identity.scale;
+    const top = feetY - SHEET_GROUND_RATIO * size;
+    const body = size * 0.5;
+    // The head sits forward, toward whichever way the sprite faces.
+    const headX = x + c.facing * size * 0.22;
+    const headY = top + size * 0.34;
+
+    ctx.save();
+    ctx.globalAlpha = c.opacity;
+    ctx.strokeStyle = identity.accent;
+    ctx.fillStyle = identity.accent;
+    ctx.lineWidth = Math.max(1, size * 0.045);
+    ctx.lineCap = "round";
+
+    switch (identity.head) {
+      case "HORNS": {
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(headX, headY - size * 0.04);
+          ctx.quadraticCurveTo(
+            headX + side * size * 0.13, headY - size * 0.16,
+            headX + side * size * 0.18, headY - size * 0.05,
+          );
+          ctx.stroke();
+        }
+        break;
+      }
+      case "ANTLERS": {
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(headX, headY - size * 0.04);
+          ctx.lineTo(headX + side * size * 0.1, headY - size * 0.22);
+          ctx.moveTo(headX + side * size * 0.05, headY - size * 0.13);
+          ctx.lineTo(headX + side * size * 0.15, headY - size * 0.17);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "EARS": {
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(headX + side * size * 0.05, headY - size * 0.02);
+          ctx.lineTo(headX + side * size * 0.09, headY - size * 0.15);
+          ctx.lineTo(headX + side * size * 0.12, headY - size * 0.02);
+          ctx.closePath();
+          ctx.fill();
+        }
+        break;
+      }
+      case "CREST": {
+        ctx.beginPath();
+        ctx.moveTo(headX - c.facing * size * 0.02, headY - size * 0.02);
+        ctx.lineTo(headX - c.facing * size * 0.12, headY - size * 0.18);
+        ctx.lineTo(headX + c.facing * size * 0.05, headY - size * 0.08);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case "TUSKS": {
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(headX + c.facing * size * 0.05, headY + size * 0.05);
+          ctx.quadraticCurveTo(
+            headX + c.facing * size * 0.19, headY + size * 0.08 + side * size * 0.02,
+            headX + c.facing * size * 0.2, headY - size * 0.02 + side * size * 0.02,
+          );
+          ctx.stroke();
+        }
+        break;
+      }
+      case "HELM": {
+        ctx.beginPath();
+        ctx.moveTo(headX - size * 0.1, headY - size * 0.05);
+        ctx.lineTo(headX + size * 0.1, headY - size * 0.05);
+        ctx.stroke();
+        break;
+      }
+    }
+
+    switch (identity.back) {
+      case "MANE": {
+        ctx.globalAlpha = c.opacity * 0.85;
+        ctx.beginPath();
+        ctx.arc(headX - c.facing * size * 0.07, headY + size * 0.06, size * 0.15, 0, Math.PI * 2);
+        ctx.lineWidth = Math.max(1, size * 0.055);
+        ctx.stroke();
+        ctx.globalAlpha = c.opacity;
+        break;
+      }
+      case "SPINES": {
+        ctx.lineWidth = Math.max(1, size * 0.035);
+        for (let i = 0; i < 4; i++) {
+          const sx = x - c.facing * size * (0.02 + i * 0.07);
+          ctx.beginPath();
+          ctx.moveTo(sx, top + size * 0.44);
+          ctx.lineTo(sx, top + size * 0.34);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "FIN": {
+        ctx.beginPath();
+        ctx.moveTo(x - size * 0.04, top + size * 0.44);
+        ctx.lineTo(x + size * 0.02, top + size * 0.2);
+        ctx.lineTo(x + size * 0.1, top + size * 0.44);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case "CAPE": {
+        ctx.globalAlpha = c.opacity * 0.75;
+        ctx.beginPath();
+        ctx.moveTo(x - c.facing * size * 0.08, top + size * 0.34);
+        ctx.lineTo(x - c.facing * size * 0.22, feetY - size * 0.08);
+        ctx.lineTo(x - c.facing * size * 0.02, feetY - size * 0.06);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = c.opacity;
+        break;
+      }
+      case "SHELL": {
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        ctx.beginPath();
+        ctx.arc(x, top + size * 0.5, size * 0.2, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+    }
+
+    ctx.globalAlpha = c.opacity * 0.8;
+    switch (identity.marking) {
+      case "STRIPES": {
+        ctx.lineWidth = Math.max(1, size * 0.04);
+        for (let i = 0; i < 3; i++) {
+          const sx = x - c.facing * size * (0.02 + i * 0.09);
+          ctx.beginPath();
+          ctx.moveTo(sx, top + size * 0.46);
+          ctx.lineTo(sx - c.facing * size * 0.03, top + size * 0.62);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "SPOTS": {
+        for (let i = 0; i < 4; i++) {
+          const sx = x - c.facing * size * (0.02 + (i % 2) * 0.12);
+          const sy = top + size * (0.48 + Math.floor(i / 2) * 0.1);
+          ctx.beginPath();
+          ctx.arc(sx, sy, size * 0.028, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "PATCH": {
+        ctx.beginPath();
+        ctx.ellipse(
+          x - c.facing * size * 0.06, top + size * 0.5,
+          size * 0.11, size * 0.07, 0, 0, Math.PI * 2,
+        );
+        ctx.fill();
+        break;
+      }
+      case "BANDS": {
+        ctx.lineWidth = Math.max(1, size * 0.045);
+        for (let i = 0; i < 4; i++) {
+          const sx = x - c.facing * size * (0.06 + i * 0.1);
+          ctx.beginPath();
+          ctx.moveTo(sx, top + size * 0.68);
+          ctx.lineTo(sx, top + size * 0.82);
+          ctx.stroke();
+        }
+        break;
+      }
     }
 
     ctx.restore();
@@ -582,7 +898,8 @@ export class BattleRenderer {
       // Damage numbers float and fade. The number itself is the engine's — a
       // blocked hit still did damage, so it is shown, just muted and marked.
       if (typeof effect.value === "number" && effect.value > 0) {
-        const rise = 14 + easeOutCubic(t) * 11;
+        // Stacked upward by slot, so simultaneous numbers do not overprint.
+        const rise = 14 + easeOutCubic(t) * 11 + effect.slot * 10;
         ctx.globalAlpha = 1 - easeOutQuad(t);
         ctx.textAlign = "center";
 
@@ -620,7 +937,7 @@ export class BattleRenderer {
 
     const t = easeOutCubic(scene.outro);
     const half = SPRITE_SIZE / 2;
-    const pulse = 1 + Math.sin(scene.elapsedMs / 260) * 0.06;
+    const pulse = this.reducedMotion ? 1 : 1 + Math.sin(scene.elapsedMs / 260) * 0.06;
 
     ctx.save();
     ctx.globalAlpha = t;
@@ -678,7 +995,9 @@ export class BattleRenderer {
         : fadesOut && progress > 0.8
           ? (1 - progress) / 0.2
           : 1;
-    const slide = (1 - easeOutBack(clamp01(progress / 0.2))) * 16;
+    const slide = this.reducedMotion
+      ? 0
+      : (1 - easeOutBack(clamp01(progress / 0.2))) * 16;
 
     ctx.save();
     ctx.globalAlpha = clamp01(alpha);
@@ -731,6 +1050,8 @@ export class BattleRenderer {
    * on time, and a scrub backwards simply replays them.
    */
   private emitSparks(scene: Scene): void {
+    // No sparks at all when motion is reduced. Nothing is lost: a spark never
+    // carried information the ring and the number did not already carry.
     if (this.reducedMotion) return;
     const index = scene.focusEventIndex;
     if (index === null || this.sparked.has(index)) return;

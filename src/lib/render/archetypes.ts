@@ -23,6 +23,7 @@
 
 import type { AnimationHint } from "@/lib/game/replay";
 import type { CharacterArt, SpriteClip, SpriteSheet } from "./assets";
+import { identityFor } from "./identity";
 
 export type VisualArchetypeId =
   | "humanoid_medium"
@@ -199,12 +200,14 @@ export function artFor(
   },
   portraitOverride?: string | null,
 ): CharacterArt {
-  const sheet = sheetFor(visualArchetypeFor(character));
+  const archetype = visualArchetypeFor(character);
+  const sheet = sheetFor(archetype);
   return {
     characterId: character.id,
     name: character.name,
     palette: character.palette,
     portraitUrl: portraitOverride ?? character.thumbnailUrl ?? null,
+    identity: identityFor(character, archetype),
     ...(sheet ? { sheet } : {}),
   };
 }

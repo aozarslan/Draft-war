@@ -114,6 +114,14 @@ export interface SceneEffect {
   value?: number;
   /** True when the engine reduced this hit — a block still deals damage. */
   blocked?: boolean;
+  /**
+   * Which row to float this number in, when several land close together.
+   *
+   * Derived from the replay's own event order rather than from a counter, so
+   * two viewers stack an exchange identically and scrubbing back to the same
+   * millisecond puts the numbers back in the same rows.
+   */
+  slot: number;
 }
 
 export interface SceneCamera {
@@ -204,6 +212,9 @@ const FLASH_MS = 180;
 const CORPSE_FADE_MS = 900;
 /** How long the trailing health bar takes to catch up to the real one. */
 const HEALTH_TRAIL_MS = 520;
+/** How close two damage numbers have to be before they need separate rows. */
+const NUMBER_SPACING_X = 34;
+const NUMBER_SPACING_Y = 30;
 
 /**
  * The largest lead any animation takes over its own event.
@@ -495,6 +506,8 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     };
   }
 
+  assignNumberSlots(effects);
+
   return {
     elapsedMs: now,
     finished: now >= replay.durationMs,
@@ -511,6 +524,34 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     outro,
     upset: replay.upset,
   };
+}
+
+/**
+ * Stacks damage numbers that would otherwise overlap.
+ *
+ * Two blows landing within a few hundred milliseconds on neighbouring
+ * combatants printed their numbers on top of each other and neither was
+ * readable. Effects arrive in the replay's own event order, so walking them in
+ * that order and taking the lowest free row is deterministic: the same battle
+ * at the same millisecond always stacks the same way, on any device.
+ */
+function assignNumberSlots(effects: SceneEffect[]): void {
+  const placed: { x: number; y: number; slot: number }[] = [];
+
+  for (const effect of effects) {
+    if (typeof effect.value !== "number") continue;
+
+    const taken = new Set(
+      placed
+        .filter((p) => Math.abs(p.x - effect.x) < NUMBER_SPACING_X &&
+                       Math.abs(p.y - effect.y) < NUMBER_SPACING_Y)
+        .map((p) => p.slot),
+    );
+    let slot = 0;
+    while (taken.has(slot)) slot++;
+    effect.slot = slot;
+    placed.push({ x: effect.x, y: effect.y, slot });
+  }
 }
 
 /** Drops the bookkeeping fields so the returned scene is exactly the contract. */
@@ -596,6 +637,7 @@ function applyEvent(
           fromX: actor?.x ?? null,
           fromY: actor?.y ?? null,
           progress: clamp01(age / EFFECT_MS),
+          slot: 0,
           ...(typeof event.damage === "number" ? { value: event.damage } : {}),
           ...(event.kind === "BLOCK" ? { blocked: true } : {}),
         });
@@ -610,6 +652,7 @@ function applyEvent(
           fromX: null,
           fromY: null,
           progress: clamp01(age / EFFECT_MS),
+          slot: 0,
         });
       }
       // A block is the one hit that does not shake the camera: it is the
@@ -635,6 +678,7 @@ function applyEvent(
             fromX: actor?.x ?? null,
             fromY: actor?.y ?? null,
             progress: clamp01(age / EFFECT_MS),
+            slot: 0,
           });
         }
       }

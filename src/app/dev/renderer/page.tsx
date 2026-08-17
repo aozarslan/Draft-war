@@ -27,6 +27,7 @@ import { PLAYER_COLORS } from "@/lib/game/colors";
 import { BattleRenderer } from "@/lib/render/canvas";
 import { VISUAL_ARCHETYPES, artFor, visualArchetypeFor } from "@/lib/render/archetypes";
 import { ArchetypePreview } from "@/components/dev/ArchetypePreview";
+import { interactionsFor } from "@/lib/render/interactions";
 import type { CharacterArt } from "@/lib/render/assets";
 
 const BANDS = computeAxisBands(CHARACTERS);
@@ -140,6 +141,7 @@ export default function RendererHarness() {
   const [portraits, setPortraits] = useState(true);
   const [legacy, setLegacy] = useState(false);
   const [sheets, setSheets] = useState(true);
+  const [calm, setCalm] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [stats, setStats] = useState({ fps: 0, drawMs: 0, worstMs: 0 });
   const [bench, setBench] = useState<string | null>(null);
@@ -249,6 +251,15 @@ export default function RendererHarness() {
       canvas,
       replay,
       art,
+      reducedMotion: calm,
+      interactions: interactionsFor(
+        replay,
+        replay.combatants.map((c) => ({
+          characterId: c.characterId,
+          teamId: c.teamId,
+          tags: CHARACTERS.find((ch) => ch.id === c.characterId)?.tags ?? [],
+        })),
+      ),
       clock: () => elapsedRef.current,
       teamColors: {
         "player-a": PLAYER_COLORS[0].hex,
@@ -271,7 +282,7 @@ export default function RendererHarness() {
       renderer.dispose();
       rendererRef.current = null;
     };
-  }, [replay, art]);
+  }, [replay, art, calm]);
 
   // The playback clock, kept here rather than in the renderer so a future
   // spectator can swap it for `Date.now() - battleStartedAt` unchanged.
@@ -485,6 +496,16 @@ export default function RendererHarness() {
             onChange={(e) => setSheets(e.target.checked)}
           />
           <span className="text-slate-300">Sprite sheet</span>
+        </label>
+
+        <label className="flex items-end gap-2 pb-1.5">
+          <input
+            className="size-4 shrink-0"
+            type="checkbox"
+            checked={calm}
+            onChange={(e) => setCalm(e.target.checked)}
+          />
+          <span className="text-slate-300">Az hareket</span>
         </label>
       </div>
 

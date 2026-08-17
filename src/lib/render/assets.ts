@@ -18,6 +18,7 @@
  */
 
 import type { AnimationHint } from "@/lib/game/replay";
+import type { IdentityConfig } from "./identity";
 
 /** One animation strip inside a sheet: a row of equally sized frames. */
 export interface SpriteClip {
@@ -75,6 +76,13 @@ export interface CharacterArt {
   characterId: string;
   name: string;
   palette: [string, string];
+  /**
+   * What separates this character from the others sharing its body plan.
+   *
+   * Optional so a caller that only has a portrait can still build art, but the
+   * catalogue always supplies one.
+   */
+  identity?: IdentityConfig;
   /** Wikimedia thumbnail, when the character has one. */
   portraitUrl: string | null;
   /** Registered sprite sheet. None exist yet; the field is the seam. */
@@ -196,6 +204,11 @@ export class AssetStore {
       palette: art.palette,
       initials: initialsOf(art.name),
     };
+  }
+
+  /** What separates this character from its archetype's other tenants. */
+  identityFor(characterId: string): IdentityConfig | null {
+    return this.art.get(characterId)?.identity ?? null;
   }
 
   /** Which row of the sheet an animation lives on, for the draw layer. */
