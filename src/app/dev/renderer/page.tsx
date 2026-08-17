@@ -22,13 +22,14 @@ import { CHARACTERS } from "@/lib/game/characters";
 import { MAPS } from "@/lib/game/maps";
 import { EVENT_CARDS } from "@/lib/game/events";
 import { FORMATIONS, type FormationId } from "@/lib/game/formations";
-import { toReplay } from "@/lib/game/replay";
+import { toReplay, type Replay } from "@/lib/game/replay";
 import { PLAYER_COLORS } from "@/lib/game/colors";
 import { BattleRenderer } from "@/lib/render/canvas";
 import { VISUAL_ARCHETYPES, artFor, visualArchetypeFor } from "@/lib/render/archetypes";
 import { disambiguate } from "@/lib/render/identity";
 import { ArchetypePreview } from "@/components/dev/ArchetypePreview";
 import { interactionsFor } from "@/lib/render/interactions";
+import { sceneAt } from "@/lib/render/scene";
 import type { CharacterArt } from "@/lib/render/assets";
 
 const BANDS = computeAxisBands(CHARACTERS);
@@ -47,6 +48,7 @@ function measure(
   renderer: BattleRenderer | null,
   canvas: HTMLCanvasElement | null,
   durationMs: number,
+  replay: Replay,
 ): string {
   if (!renderer || !canvas) return "renderer hazır değil";
   const ctx = canvas.getContext("2d");
@@ -81,10 +83,17 @@ function measure(
   const measured = (performance.now() - started) / runs;
   const per = Math.max(0, measured - baseline);
 
+  // Split the frame into projection and drawing. Without it a mobile number
+  // that refuses to come down looks like a drawing problem when it is the pure
+  // scene walk, which costs the same at every canvas size.
+  const sceneStart = performance.now();
+  for (let i = 0; i < runs; i++) sceneAt(replay, times[i % samples]);
+  const scenePer = (performance.now() - sceneStart) / runs;
+
   return (
     `${per.toFixed(2)} ms/kare · ` +
     `16.7 ms bütçenin %${((per / 16.7) * 100).toFixed(0)}'i · ` +
-    `ölçüm payı ${baseline.toFixed(2)} ms`
+    `sahne ${scenePer.toFixed(2)} ms · çizim ${(per - scenePer).toFixed(2)} ms`
   );
 }
 
@@ -377,7 +386,7 @@ export default function RendererHarness() {
       <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={() =>
-            setBench(measure(rendererRef.current, canvasRef.current, replay.durationMs))
+            setBench(measure(rendererRef.current, canvasRef.current, replay.durationMs, replay))
           }
           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200"
         >

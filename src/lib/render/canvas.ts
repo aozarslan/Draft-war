@@ -16,7 +16,7 @@
  */
 
 import type { Replay } from "@/lib/game/replay";
-import { AssetStore, type CharacterArt } from "./assets";
+import { AssetStore, type CharacterArt, type SpriteSheet } from "./assets";
 import { FRAME_SIZE, SHEET_GROUND_RATIO } from "./archetypes";
 import {
   IDENTITY_TILE_ROWS,
@@ -68,10 +68,30 @@ const SHEET_SCALE = 1.5;
  * and read as a separate object hovering above it. Markings sit flat on the
  * flank and want to match the body, not exceed it.
  */
+/**
+ * The resolutions a composed frame may be assembled at.
+ *
+ * Bucketed rather than exact so the cache stays small — a handful of sizes
+ * across a session instead of one per pixel of zoom. A fixed 64 was wasteful
+ * on a phone, where a sprite is drawn at about thirteen pixels: the blit cost
+ * the same as on a desktop and the mobile budget went from 1.7ms to 4.5ms.
+ */
+const COMPOSED_SIZES = [24, 32, 48, 64, 96] as const;
+
+/** The smallest bucket that still covers what will be drawn. */
+function composedSizeFor(devicePixels: number): number {
+  for (const size of COMPOSED_SIZES) {
+    if (size >= devicePixels) return size;
+  }
+  return COMPOSED_SIZES[COMPOSED_SIZES.length - 1];
+}
+
 const TILE_SCALE: Record<string, number> = {
   head: 1.1,
   back: 0.72,
   body: 0.9,
+  // A mark is stamped several times along the flank, so each one is small.
+  mark: 0.5,
 };
 /** How many frames the performance meter averages over. */
 const SAMPLE_FRAMES = 120;
@@ -130,6 +150,7 @@ export class BattleRenderer {
   private readonly frameTimes: number[] = [];
   private readonly intervals: number[] = [];
   private scale = 1;
+  private dpr = 1;
   private offsetX = 0;
   private offsetY = 0;
 
@@ -150,6 +171,11 @@ export class BattleRenderer {
     });
     this.assets.preload();
     this.assets.preloadTiles();
+    // A late sheet or tile arrival invalidates anything composed without it.
+    this.assets.setOnReady(() => {
+      this.assets.clearComposed();
+      if (!this.running) this.renderAt(this.clock());
+    });
     this.resize();
   }
 
@@ -218,6 +244,7 @@ export class BattleRenderer {
    */
   resize(): void {
     const dpr = typeof window === "undefined" ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = dpr;
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(1, Math.round(rect.width || this.canvas.width));
     const height = Math.max(1, Math.round(rect.height || this.canvas.height));
@@ -227,7 +254,11 @@ export class BattleRenderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Letterbox the arena so it never distorts, whatever the container is.
+    const previousScale = this.scale;
     this.scale = Math.min(width / ARENA.width, height / ARENA.height);
+    // A different scale picks a different bucket; the old cells are for a size
+    // nothing will ask for again.
+    if (previousScale !== this.scale) this.assets.clearComposed();
     this.offsetX = (width - ARENA.width * this.scale) / 2;
     this.offsetY = (height - ARENA.height * this.scale) / 2;
 
@@ -305,7 +336,12 @@ export class BattleRenderer {
       width / 2, height / 2, Math.max(width, height) * 0.62,
     );
     vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, `rgba(0,0,0,${0.55 * strength})`);
+    // A softer vignette when motion is reduced: the darkening still says "this
+    // moment matters" without pulsing the whole frame.
+    vignette.addColorStop(
+      1,
+      `rgba(0,0,0,${(this.reducedMotion ? 0.35 : 0.55) * strength})`,
+    );
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
 
@@ -382,10 +418,14 @@ export class BattleRenderer {
     c: SceneCombatant,
     showHealth: boolean,
   ): void {
-    const x = c.x + c.lunge;
+    // Reduced motion damps the sprite's travel rather than removing it: a
+    // lunge that vanished would take "who is attacking" with it, so it is cut
+    // to a quarter — visible as intent, not as motion.
+    const travel = this.reducedMotion ? 0.25 : 1;
+    const x = c.x + c.lunge * travel;
     // The body sinks as it fades, so a corpse settles instead of hanging in
     // the air at a quarter opacity where the survivors are.
-    const y = c.y + c.lungeY + c.sink * 3;
+    const y = c.y + c.lungeY * travel + c.sink * 3;
 
     ctx.save();
     ctx.globalAlpha = c.opacity;
@@ -423,27 +463,39 @@ export class BattleRenderer {
     const half = (SPRITE_SIZE * bodyScale) / 2;
 
     if (sprite.kind === "SHEET") {
-      const { sheet, frame, row, image } = sprite;
       // Anchored by the ground line, not the centre: a frame is mostly empty
       // air above the animal, so centring it leaves the sprite hovering over
       // its own shadow.
       const drawSize = SPRITE_SIZE * SHEET_SCALE * bodyScale;
-      const feet = feetY;
+      // Composed once per character and frame — body, markings, back and head
+      // together — then blitted. Assembling seven layers per combatant per
+      // frame cost twice the budget at ten combatants.
+      const cell = identity
+        ? this.assets.composedFrame(
+            c.characterId,
+            sprite.row,
+            sprite.frame,
+            (cellCtx, size) => this.composeSprite(cellCtx, size, sprite, identity, c.characterId),
+            composedSizeFor(drawSize * this.scale * this.dpr),
+          )
+        : null;
+
       ctx.save();
-      ctx.translate(x, feet - SHEET_GROUND_RATIO * drawSize);
+      ctx.translate(x, feetY - SHEET_GROUND_RATIO * drawSize);
       ctx.scale(c.facing, 1);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(
-        image,
-        frame * sheet.frameWidth,
-        row * sheet.frameHeight,
-        sheet.frameWidth,
-        sheet.frameHeight,
-        -drawSize / 2,
-        0,
-        drawSize,
-        drawSize,
-      );
+
+      if (cell) {
+        ctx.drawImage(cell, -drawSize / 2, 0, drawSize, drawSize);
+      } else {
+        const { sheet, frame, row, image } = sprite;
+        ctx.drawImage(
+          image,
+          frame * sheet.frameWidth, row * sheet.frameHeight,
+          sheet.frameWidth, sheet.frameHeight,
+          -drawSize / 2, 0, drawSize, drawSize,
+        );
+      }
       ctx.restore();
     } else if (sprite.kind === "PORTRAIT") {
       ctx.save();
@@ -484,10 +536,6 @@ export class BattleRenderer {
     // seventy-odd sprite sheets, and at thirty screen pixels a horn is four
     // lines. Everything here is positioned from the sprite's own drawn box, so
     // it follows the lunge, the scale and the sink without extra bookkeeping.
-    if (identity && sprite.kind === "SHEET") {
-      this.drawIdentity(ctx, c, identity, x, feetY, sprite.frame, sprite.row);
-    }
-
     // Hit flash, over whatever was drawn.
     if (c.flash > 0) {
       ctx.globalAlpha = c.opacity * c.flash * 0.7;
@@ -618,53 +666,56 @@ export class BattleRenderer {
    * cannot drift when the body scales, lunges or sinks. Nothing here reads a
    * character id; it reads the configuration the identity layer resolved.
    */
-  private drawIdentity(
+  /**
+   * Assembles one character's frame: the tinted body, then its identity.
+   *
+   * Called once per character per frame and cached, so everything here is
+   * allowed to be as many draw calls as the picture needs. Coordinates are in
+   * the sheet's own 32-pixel frame space scaled to the cell, which is why the
+   * anchors the generator emitted drop straight in.
+   */
+  private composeSprite(
     ctx: CanvasRenderingContext2D,
-    c: SceneCombatant,
+    size: number,
+    sprite: { sheet: SpriteSheet; frame: number; row: number; image: CanvasImageSource },
     identity: IdentityConfig,
-    x: number,
-    feetY: number,
-    frame: number,
-    row: number,
+    characterId: string,
   ): void {
-    const archetype = this.assets.archetypeFor(c.characterId);
-    if (!archetype) return;
+    const { sheet, frame, row, image } = sprite;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      image,
+      frame * sheet.frameWidth, row * sheet.frameHeight,
+      sheet.frameWidth, sheet.frameHeight,
+      0, 0, size, size,
+    );
 
+    const archetype = this.assets.archetypeFor(characterId);
+    if (!archetype) return;
     const tiles = this.assets.tiles(identity.accent);
     if (!tiles) return;
-
     const anchors = SPRITE_ANCHORS[archetype]?.[row]?.[frame];
     if (!anchors) return;
 
-    const size = SPRITE_SIZE * SHEET_SCALE * identity.scale;
-    // The sprite's own top-left in arena units, so an anchor in frame pixels
-    // converts by one multiply. The body reported these while it was being
-    // drawn, which is why a horn cannot end up two pixels off a skull.
     const unit = size / FRAME_SIZE;
-    const left = x - size / 2;
-    const top = feetY - SHEET_GROUND_RATIO * size;
 
-    const place = (feature: string) => {
+    const stamp = (feature: string, anchor: readonly number[]) => {
       const meta = IDENTITY_TILE_SLOTS[feature];
       if (!meta) return;
       const rowIndex = IDENTITY_TILE_ROWS.indexOf(feature);
       if (rowIndex < 0) return;
-
-      const anchor =
-        meta.slot === "head" ? anchors.head
-        : meta.slot === "back" ? anchors.back
-        : anchors.body;
 
       const tileSize = IDENTITY_TILE_SIZE * unit * (TILE_SCALE[meta.slot] ?? 1);
       const pivotX = (meta.pivot[0] / IDENTITY_TILE_SIZE) * tileSize;
       const pivotY = (meta.pivot[1] / IDENTITY_TILE_SIZE) * tileSize;
 
       ctx.save();
-      ctx.translate(left + anchor[0] * unit, top + anchor[1] * unit);
-      // Tiles are drawn facing right; mirroring keeps a crest pointing the way
-      // the animal is looking.
-      ctx.scale(c.facing, 1);
-      ctx.imageSmoothingEnabled = false;
+      ctx.translate(anchor[0] * unit, anchor[1] * unit);
+      // The body's own angle at that point, so horns tip back when a horse
+      // rears and a stripe lies across a coiling snake rather than through it.
+      // The angle is the body's, reported while it was drawn — this layer
+      // never works out a pose for itself.
+      if (anchor[2]) ctx.rotate(anchor[2]);
       ctx.drawImage(
         tiles,
         0, rowIndex * IDENTITY_TILE_SIZE,
@@ -675,14 +726,34 @@ export class BattleRenderer {
       ctx.restore();
     };
 
-    ctx.save();
-    ctx.globalAlpha = c.opacity;
+    const place = (feature: string) => {
+      const meta = IDENTITY_TILE_SLOTS[feature];
+      if (!meta) return;
+
+      if (meta.slot === "mark") {
+        // One stamp per flank point. A patch is a single blemish, so it takes
+        // only the middle one; everything else runs the length of the body.
+        const points = anchors.marks ?? [];
+        if (points.length === 0) return;
+        const chosen =
+          feature === "PATCH" ? [points[Math.floor(points.length / 2)]] : points;
+        for (const point of chosen) stamp(feature, point);
+        return;
+      }
+
+      stamp(
+        feature,
+        meta.slot === "head" ? anchors.head
+        : meta.slot === "back" ? anchors.back
+        : anchors.body,
+      );
+    };
+
     // Markings under the features, so a mane sits over a stripe rather than
     // being cut by it.
     if (identity.marking !== "PLAIN") place(identity.marking);
     if (identity.back !== "NONE") place(identity.back);
     if (identity.head !== "PLAIN") place(identity.head);
-    ctx.restore();
   }
 
   /**
@@ -776,7 +847,9 @@ export class BattleRenderer {
           ctx.lineWidth = 1.8;
           // A rotating pair of arcs: unmistakable against the plain rings.
           for (let i = 0; i < 2; i++) {
-            const a = angle + i * Math.PI + t * 2.2;
+            // The arcs stop spinning under reduced motion; the violet pair
+            // still says "special" without the rotation.
+            const a = angle + i * Math.PI + (this.reducedMotion ? 0 : t * 2.2);
             ctx.beginPath();
             ctx.arc(effect.x, effect.y, 8 + easeOutCubic(t) * 11, a, a + 1.6);
             ctx.stroke();
@@ -873,7 +946,7 @@ export class BattleRenderer {
     ctx.stroke();
 
     // A chevron above the head, dropping into place.
-    const top = mvp.y - half - 8 - (1 - t) * 10;
+    const top = mvp.y - half - 8 - (this.reducedMotion ? 0 : (1 - t) * 10);
     ctx.fillStyle = "#facc15";
     ctx.beginPath();
     ctx.moveTo(mvp.x, top + 5);

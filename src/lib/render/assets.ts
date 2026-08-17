@@ -19,6 +19,7 @@
 
 import type { AnimationHint } from "@/lib/game/replay";
 import type { IdentityConfig } from "./identity";
+import { identityTilesApproved } from "./archetypes";
 
 /** One animation strip inside a sheet: a row of equally sized frames. */
 export interface SpriteClip {
@@ -179,6 +180,7 @@ export class AssetStore {
   private readonly images = new Map<string, Slot>();
   private readonly tints = new Map<string, HTMLCanvasElement | null>();
   private readonly flats = new Map<string, HTMLCanvasElement | null>();
+  private readonly composed = new Map<string, HTMLCanvasElement | null>();
   private onReady: (() => void) | null = null;
 
   constructor(art: CharacterArt[] = []) {
@@ -255,6 +257,9 @@ export class AssetStore {
    * the flood multiplies rather than replaces.
    */
   tiles(accent: string): HTMLCanvasElement | null {
+    // Same rule as a body sheet: unapproved artwork does not get drawn.
+    if (!identityTilesApproved()) return null;
+
     const cached = this.flats.get(accent);
     if (cached !== undefined) return cached;
 
@@ -271,8 +276,54 @@ export class AssetStore {
     return canvas;
   }
 
+  /**
+   * One character, one frame, fully assembled: tinted body plus every identity
+   * layer, in a small canvas of its own.
+   *
+   * Drawing a combatant used to mean up to seven transformed `drawImage` calls
+   * — the body, four markings, a back feature and a head feature — every frame,
+   * for ten combatants. That is sixty transforms a frame to redraw something
+   * that never changes for a given character and frame. Composing it once and
+   * caching it makes drawing a combatant a single blit.
+   *
+   * The cache is bounded by the roster: ten characters times twenty-nine
+   * frames, each a few kilobytes, and it dies with the renderer.
+   */
+  composedFrame(
+    characterId: string,
+    row: number,
+    frame: number,
+    compose: (ctx: CanvasRenderingContext2D, size: number) => void,
+    size: number,
+  ): HTMLCanvasElement | null {
+    const key = `${characterId}|${row}|${frame}|${size}`;
+    const cached = this.composed.get(key);
+    if (cached !== undefined) return cached;
+    if (typeof document === "undefined") return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      this.composed.set(key, null);
+      return null;
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    compose(ctx, size);
+    this.composed.set(key, canvas);
+    return canvas;
+  }
+
+  /** Drops composed frames, e.g. when the canvas is resized. */
+  clearComposed(): void {
+    this.composed.clear();
+  }
+
   /** Starts the tile sheet loading alongside the bodies. */
   preloadTiles(): void {
+    if (!identityTilesApproved()) return;
     this.load(IDENTITY_TILES_SRC);
   }
 
@@ -296,6 +347,7 @@ export class AssetStore {
     this.images.clear();
     this.tints.clear();
     this.flats.clear();
+    this.composed.clear();
     this.onReady = null;
   }
 

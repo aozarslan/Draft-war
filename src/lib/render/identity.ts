@@ -286,21 +286,34 @@ export function identityFor(
  * the collision allows.
  */
 export function disambiguate(
-  roster: { characterId: string; config: IdentityConfig }[],
+  roster: { characterId: string; teamId?: string; config: IdentityConfig }[],
 ): Map<string, IdentityConfig> {
   const out = new Map<string, IdentityConfig>();
-  const taken = new Set<string>();
+  const takenOverall = new Set<string>();
+  const takenPerTeam = new Map<string, Set<string>>();
 
   for (const entry of roster) {
+    const team = entry.teamId ?? "";
+    if (!takenPerTeam.has(team)) takenPerTeam.set(team, new Set());
+    const teammates = takenPerTeam.get(team)!;
+
     let config = entry.config;
     let attempt = 0;
 
-    while (taken.has(identitySignature(config)) && attempt < DISAMBIGUATION_STEPS.length) {
+    // Two conditions, and the team one is stricter. Across the field a colour
+    // difference is enough to separate two creatures; between teammates it is
+    // not, because they already share a team colour on the ground ring — so
+    // within a squad the *shape* has to differ, not just the accent.
+    const clashes = (c: IdentityConfig) =>
+      takenOverall.has(identitySignature(c)) || teammates.has(shapeKey(c));
+
+    while (clashes(config) && attempt < DISAMBIGUATION_STEPS.length) {
       config = DISAMBIGUATION_STEPS[attempt](config, entry.characterId);
       attempt++;
     }
 
-    taken.add(identitySignature(config));
+    takenOverall.add(identitySignature(config));
+    teammates.add(shapeKey(config));
     out.set(entry.characterId, config);
   }
 
@@ -308,24 +321,43 @@ export function disambiguate(
 }
 
 /**
+ * What a character looks like with the colour taken away.
+ *
+ * Silhouette, markings and features — everything the eye reads before it reads
+ * hue. Two teammates are required to differ on this, not merely on their
+ * accent.
+ */
+export function shapeKey(config: IdentityConfig): string {
+  return [config.scale, config.head, config.back, config.marking].join("|");
+}
+
+/**
  * The order in which a colliding look is nudged.
  *
- * Marking first because it is the cheapest change to read past, then the back
- * feature, then size, then the head — the head is the most characterful part
- * of a silhouette and the last thing worth disturbing.
+ * It follows how the eye reads a sprite: silhouette first, then markings, then
+ * the head and back features, and colour only as a last resort. Changing the
+ * accent to separate two characters is the weakest possible fix — it is the
+ * one thing a colour-blind viewer, a small screen or a dark room all take
+ * away first.
  */
 const DISAMBIGUATION_STEPS: ((c: IdentityConfig, id: string) => IdentityConfig)[] = [
+  // 1. Silhouette.
+  (c) => ({ ...c, scale: Math.round(c.scale * 0.86 * 100) / 100 }),
+  (c) => ({ ...c, scale: Math.round(c.scale * 1.32 * 100) / 100 }),
+  // 2. Markings.
   (c, id) => ({ ...c, marking: pick(id, 91, MARKINGS.filter((m) => m !== c.marking)) }),
+  (c, id) => ({ ...c, marking: pick(id, 94, MARKINGS.filter((m) => m !== c.marking)) }),
+  // 3. Back and head features.
   (c, id) => ({
     ...c,
     back: pick(id, 92, (["NONE", "MANE", "SPINES", "CAPE"] as BackFeature[]).filter((b) => b !== c.back)),
   }),
-  (c) => ({ ...c, scale: Math.round((c.scale * 0.88) * 100) / 100 }),
   (c, id) => ({
     ...c,
     head: pick(id, 93, (["PLAIN", "HORNS", "EARS", "CREST"] as HeadFeature[]).filter((h) => h !== c.head)),
   }),
-  (c) => ({ ...c, scale: Math.round((c.scale * 1.14) * 100) / 100 }),
+  // 4. Colour, and only now.
+  (c, id) => ({ ...c, accent: accentFrom([c.accent, c.accent], id + ":again") }),
 ];
 
 /**

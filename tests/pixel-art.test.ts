@@ -17,6 +17,8 @@ import {
 import { disambiguate, identityFor, identitySignature } from "../src/lib/render/identity";
 import { visualArchetypeFor } from "../src/lib/render/archetypes";
 import { sceneAt } from "../src/lib/render/scene";
+import { fingerprint, rasterise } from "./support/raster";
+import type { AnimationHint } from "../src/lib/game/replay";
 
 /**
  * ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ describe("the identity tiles are made of the same material as the bodies", () =>
     for (const id of IDENTITY_TILE_ROWS) {
       const meta = IDENTITY_TILE_SLOTS[id];
       expect(meta, `${id} has no slot`).toBeTruthy();
-      expect(["head", "back", "body"]).toContain(meta.slot);
+      expect(["head", "back", "body", "mark"]).toContain(meta.slot);
       expect(meta.pivot[0]).toBeGreaterThanOrEqual(0);
       expect(meta.pivot[0]).toBeLessThanOrEqual(IDENTITY_TILE_SIZE);
       expect(meta.pivot[1]).toBeGreaterThanOrEqual(0);
@@ -167,6 +169,48 @@ describe("anchors come from the bodies that were drawn", () => {
     for (const archetype of ["quadruped_medium", "quadruped_small", "humanoid_medium"]) {
       const anchor = SPRITE_ANCHORS[archetype][SHEET_CLIPS.IDLE.row][0]!;
       expect(anchor.head[1]).toBeLessThan(anchor.body[1]);
+    }
+  });
+
+  it("reports flank points for every body, inside the frame", () => {
+    for (const archetype of DRAWN_ARCHETYPES) {
+      for (const row of SPRITE_ANCHORS[archetype]) {
+        for (const anchor of row) {
+          if (!anchor) continue;
+          expect(anchor.marks.length).toBeGreaterThanOrEqual(3);
+          for (const [x, y] of anchor.marks) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThanOrEqual(FRAME_SIZE);
+            expect(y).toBeGreaterThanOrEqual(0);
+            expect(y).toBeLessThanOrEqual(FRAME_SIZE);
+          }
+        }
+      }
+    }
+  });
+
+  it("turns the body when the pose does, so features turn with it", () => {
+    // A rearing quadruped, a diving bird and a coiling snake all change the
+    // direction their body faces; identity layers rotate by exactly that.
+    for (const archetype of ["quadruped_medium", "winged", "serpentine"]) {
+      const cast = SPRITE_ANCHORS[archetype][SHEET_CLIPS.CAST.row];
+      const angles = cast.filter(Boolean).map((a) => a!.head[2]);
+      const spread = Math.max(...angles) - Math.min(...angles);
+      expect(spread, `${archetype} never turns`).toBeGreaterThan(0.05);
+    }
+  });
+
+  it("keeps every reported angle a real number within a turn", () => {
+    for (const archetype of DRAWN_ARCHETYPES) {
+      for (const row of SPRITE_ANCHORS[archetype]) {
+        for (const anchor of row) {
+          if (!anchor) continue;
+          for (const angle of [anchor.head[2], anchor.back[2], anchor.body[2]]) {
+            expect(Number.isFinite(angle)).toBe(true);
+            expect(Math.abs(angle)).toBeLessThanOrEqual(Math.PI * 2);
+          }
+        }
+      }
     }
   });
 });
@@ -319,5 +363,57 @@ describe("the whole scene still rewinds exactly", () => {
     for (let i = 0; i < 20; i++) {
       expect(sceneAt(replay, 11_111)).toEqual(sceneAt(replay, 11_111));
     }
+  });
+});
+
+describe("markings follow the body rather than sitting on top of it", () => {
+  const tiger = CHARACTERS.find((c) => c.id === "animals-tiger")!;
+  const anaconda = CHARACTERS.find((c) => c.id === "animals-green-anaconda")!;
+
+  /** Where a marking's pixels are, relative to the body's own pixels. */
+  const markPositions = (character: typeof tiger, animation: AnimationHint, frame: number) => {
+    const archetype = visualArchetypeFor(character);
+    return SPRITE_ANCHORS[archetype][SHEET_CLIPS[animation].row][frame]!.marks;
+  };
+
+  it("stamps a marking once per flank point, not once per character", () => {
+    // A single pattern tile could never bend; several small marks can.
+    expect(markPositions(tiger, "IDLE", 0).length).toBeGreaterThanOrEqual(3);
+    expect(IDENTITY_TILE_SLOTS.STRIPES.slot).toBe("mark");
+    expect(IDENTITY_TILE_SLOTS.BANDS.slot).toBe("mark");
+  });
+
+  it("moves the marks when the body moves", () => {
+    const still = markPositions(tiger, "IDLE", 0);
+    const rearing = markPositions(tiger, "CAST", 3);
+    const moved = still.some(
+      (m, i) => Math.abs(m[0] - rearing[i][0]) > 0.5 || Math.abs(m[1] - rearing[i][1]) > 0.5,
+    );
+    expect(moved, "marks stayed put while the body reared").toBe(true);
+  });
+
+  it("turns the marks when the body turns", () => {
+    const rearing = markPositions(tiger, "CAST", 3);
+    const still = markPositions(tiger, "IDLE", 0);
+    expect(
+      Math.abs(rearing[0][2] - still[0][2]),
+      "marks kept the same angle through a rear",
+    ).toBeGreaterThan(0.05);
+  });
+
+  it("follows a snake around its own curve", () => {
+    // The serpent samples its marks from the curve it was drawn along, so the
+    // angles differ *along the body* rather than all pointing one way.
+    const marks = markPositions(anaconda, "CAST", 3);
+    const angles = marks.map((m) => m[2]);
+    const spread = Math.max(...angles) - Math.min(...angles);
+    expect(spread, "a coiled snake's marks all pointed the same way").toBeGreaterThan(0.2);
+  });
+
+  it("changes the drawn pixels when the pose changes", () => {
+    // End to end: the composed sprite differs, not just the anchor table.
+    const a = fingerprint(rasterise(tiger, "IDLE", 0));
+    const b = fingerprint(rasterise(tiger, "CAST", 3));
+    expect(a).not.toBe(b);
   });
 });

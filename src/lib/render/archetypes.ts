@@ -143,6 +143,23 @@ const undrawn = (id: VisualArchetypeId, label: string): VisualArchetype => ({
   provenance: null,
 });
 
+/**
+ * The identity tile sheet's own provenance.
+ *
+ * It shipped in M8 without one, which broke the rule the bodies follow: no
+ * artwork reaches the renderer without a record of where it came from. The
+ * loader enforces `approved` on it exactly as it does on a body sheet.
+ */
+export const IDENTITY_TILES_ASSET: { src: string; provenance: AssetProvenance } = {
+  src: "/sprites/identity.png",
+  provenance: { ...GENERATED },
+};
+
+/** Whether the identity tiles may be drawn at all. */
+export function identityTilesApproved(): boolean {
+  return IDENTITY_TILES_ASSET.provenance.approved;
+}
+
 export const VISUAL_ARCHETYPES: Record<VisualArchetypeId, VisualArchetype> = {
   humanoid_medium: drawn("humanoid_medium", "Humanoid"),
   humanoid_large: undrawn("humanoid_large", "Large humanoid"),

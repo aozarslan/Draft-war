@@ -189,11 +189,30 @@ export interface Pose {
  * the first the moment either was tuned. A horn that sits two pixels off its
  * skull is worse than no horn.
  */
+/** A point on the body, and which way the body is facing there. */
+export interface Anchored {
+  x: number;
+  y: number;
+  /** Radians. Zero points along the body's forward axis. */
+  angle: number;
+}
+
 export interface BodyAnchors {
-  head: { x: number; y: number };
-  back: { x: number; y: number };
-  /** The body's own centre, for markings. */
-  body: { x: number; y: number };
+  head: Anchored;
+  back: Anchored;
+  /** The body's own centre. */
+  body: Anchored;
+  /**
+   * Points along the flank, from tail to shoulder, with the local surface
+   * angle at each.
+   *
+   * Markings are stamped once per point instead of once per character, which
+   * is what lets a stripe pattern follow a coiling snake or a rearing horse
+   * instead of sitting flat across it. Reported by the body for the same
+   * reason the anchors are: there must be exactly one piece of code that knows
+   * where this body's flank is.
+   */
+  marks: Anchored[];
 }
 
 export const REST: Pose = {
@@ -223,6 +242,33 @@ function shifted(cell: Pixels, dx: number) {
       ax: number, ay: number, bx: number, by: number, cx: number, cy: number, tone: number,
     ) => cell.triangle(ax + dx, ay, bx + dx, by, cx + dx, cy, tone),
   };
+}
+
+/**
+ * Samples evenly along a line, giving each point the same local angle.
+ *
+ * The one place a body without its own curve describes its flank. Offsetting
+ * each point sideways by `drop` puts the marks on the flank rather than
+ * through the spine.
+ */
+function alongLine(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  count: number,
+  angle: number,
+  drop: number,
+): Anchored[] {
+  const out: Anchored[] = [];
+  const normal = angle + Math.PI / 2;
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0.5 : (i + 0.5) / count;
+    out.push({
+      x: from.x + (to.x - from.x) * t + Math.cos(normal) * drop,
+      y: from.y + (to.y - from.y) * t + Math.sin(normal) * drop,
+      angle,
+    });
+  }
+  return out;
 }
 
 type Brush = ReturnType<typeof shifted>;
@@ -306,10 +352,17 @@ function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): BodyAnchors {
   p.line(headX - 2 * scale, headY - 3 * scale, headX - 3 * scale, headY - 5.5 * scale, BASE, 2);
   p.set(headX + 1.4 * scale, headY - 0.6, OUTLINE);
 
+  // The spine runs from the haunch to the shoulder; rearing lifts the front of
+  // it, so the flank tilts and every marking on it tilts with it.
+  const tailPoint = { x: 16 - 6 * scale + pose.push, y: backY };
+  const shoulderPoint = { x: 16 + 4 * scale + pose.push, y: frontY };
+  const spine = Math.atan2(shoulderPoint.y - tailPoint.y, shoulderPoint.x - tailPoint.x);
+
   return {
-    head: { x: headX + pose.push, y: headY },
-    back: { x: 16 + pose.push, y: bodyCy - bodyRy },
-    body: { x: 16 + pose.push, y: bodyCy },
+    head: { x: headX + pose.push, y: headY, angle: spine + pose.lean * 0.05 },
+    back: { x: 16 + pose.push, y: bodyCy - bodyRy, angle: spine },
+    body: { x: 16 + pose.push, y: bodyCy, angle: spine },
+    marks: alongLine(tailPoint, shoulderPoint, 4, spine, bodyRy * 0.25),
   };
 }
 
@@ -343,10 +396,14 @@ function drawHumanoid(cell: Pixels, pose: Pose): BodyAnchors {
     p.line(21, y + 1, 26, y + 2, SHADE, 2);
     p.line(21, y - 1, 26, y - 1, SHADE, 2);
     p.line(13, y - 2, 17, y - 5, SHADE, 2);
+    // Lying down: the whole figure is horizontal, so everything on it is too.
     return {
-      head: { x: 9 + pose.push, y: y - 1 },
-      back: { x: 16 + pose.push, y: y - 2 },
-      body: { x: 16 + pose.push, y },
+      head: { x: 9 + pose.push, y: y - 1, angle: 0 },
+      back: { x: 16 + pose.push, y: y - 2, angle: 0 },
+      body: { x: 16 + pose.push, y, angle: 0 },
+      marks: alongLine(
+        { x: 11 + pose.push, y }, { x: 21 + pose.push, y }, 3, 0, 1,
+      ),
     };
   }
 
@@ -391,10 +448,16 @@ function drawHumanoid(cell: Pixels, pose: Pose): BodyAnchors {
   p.set(headX + 1.6, headY - 0.4, OUTLINE);
   p.set(headX - 1, headY - 0.4, OUTLINE);
 
+  // Upright, so the torso's own lean is the angle everything on it inherits.
+  const hip = { x: 16 + pose.push, y: hipY };
+  const shoulder = { x: shoulderX + pose.push, y: shoulderY };
+  const torso = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x) + Math.PI / 2;
+
   return {
-    head: { x: headX + pose.push, y: headY },
-    back: { x: shoulderX + pose.push, y: shoulderY },
-    body: { x: 16 + pose.push, y: (hipY + shoulderY) / 2 },
+    head: { x: headX + pose.push, y: headY, angle: torso },
+    back: { x: shoulderX + pose.push, y: shoulderY, angle: torso },
+    body: { x: 16 + pose.push, y: (hipY + shoulderY) / 2, angle: torso },
+    marks: alongLine(hip, shoulder, 3, torso, 0.5),
   };
 }
 
@@ -470,10 +533,17 @@ function drawWinged(cell: Pixels, pose: Pose): BodyAnchors {
     p.line(bodyX - 1, bodyY + 2, bodyX + 1 + reach, bodyY + 5 + reach * 0.5, BASE, 2);
   }
 
+  // A dive pitches the whole bird nose-down; `rear` is how far it is swept.
+  const pitch = -pose.rear * 0.12 + pose.lean * 0.05;
+
   return {
-    head: { x: headX + pose.push, y: headY },
-    back: { x: bodyX + pose.push, y: bodyY - 3 },
-    body: { x: bodyX + pose.push, y: bodyY },
+    head: { x: headX + pose.push, y: headY, angle: pitch },
+    back: { x: bodyX + pose.push, y: bodyY - 3, angle: pitch },
+    body: { x: bodyX + pose.push, y: bodyY, angle: pitch },
+    marks: alongLine(
+      { x: bodyX - 3 + pose.push, y: bodyY }, { x: bodyX + 3 + pose.push, y: bodyY },
+      3, pitch, 0.4,
+    ),
   };
 }
 
@@ -539,10 +609,33 @@ function drawSerpentine(cell: Pixels, pose: Pose): BodyAnchors {
     p.line(headX + 2.5, headY + 0.4, headX + 5, headY + 0.4, LIGHT);
   }
 
+  // A snake is all spine, so its marking points are sampled from the same
+  // curve the body was drawn along rather than from a straight line.
+  const marks: Anchored[] = [];
+  for (let i = 1; i <= 4; i++) {
+    const t = i / 5.5;
+    const x = 6 + t * 17;
+    const wave = Math.sin(t * 5 + pose.tail) * (1.6 + coil * 0.3) * (1 - collapse * 0.7);
+    const y = baseY - t * t * coil + wave - t * 1.2 - collapse * 1.5;
+
+    // The local direction of travel, from a small step along the same curve.
+    const t2 = t + 0.06;
+    const x2 = 6 + t2 * 17;
+    const wave2 = Math.sin(t2 * 5 + pose.tail) * (1.6 + coil * 0.3) * (1 - collapse * 0.7);
+    const y2 = baseY - t2 * t2 * coil + wave2 - t2 * 1.2 - collapse * 1.5;
+
+    marks.push({ x: x + pose.push, y, angle: Math.atan2(y2 - y, x2 - x) });
+  }
+
+  const headAngle = marks.length
+    ? Math.atan2(headY - marks[marks.length - 1].y, headX - marks[marks.length - 1].x)
+    : 0;
+
   return {
-    head: { x: headX + pose.push, y: headY },
-    back: { x: 14 + pose.push, y: baseY - coil * 0.4 - 2 },
-    body: { x: 14 + pose.push, y: baseY - coil * 0.3 },
+    head: { x: headX + pose.push, y: headY, angle: headAngle },
+    back: { x: 14 + pose.push, y: baseY - coil * 0.4 - 2, angle: headAngle },
+    body: { x: 14 + pose.push, y: baseY - coil * 0.3, angle: headAngle },
+    marks,
   };
 }
 
@@ -602,10 +695,17 @@ function drawAquatic(cell: Pixels, pose: Pose): BodyAnchors {
   }
   p.set(headX + 0.4, headY - 0.8 * -finDir, OUTLINE);
 
+  // Breaching pitches the nose up; rolling over turns the whole animal.
+  const pitch = -pose.rear * 0.1 + collapse * Math.PI;
+
   return {
-    head: { x: headX + pose.push, y: headY },
-    back: { x: 17 + pose.push, y: bodyY + 5 * finDir },
-    body: { x: 16 + pose.push, y: bodyY },
+    head: { x: headX + pose.push, y: headY, angle: pitch },
+    back: { x: 17 + pose.push, y: bodyY + 5 * finDir, angle: pitch },
+    body: { x: 16 + pose.push, y: bodyY, angle: pitch },
+    marks: alongLine(
+      { x: 10 + pose.push, y: bodyY }, { x: 21 + pose.push, y: bodyY },
+      4, pitch, 0.6,
+    ),
   };
 }
 
@@ -656,8 +756,13 @@ export interface TilePivot {
 
 export interface IdentityTile {
   id: string;
-  /** Which anchor it attaches to. */
-  slot: "head" | "back" | "body";
+  /**
+   * Which anchor it attaches to.
+   *
+   * `mark` is the odd one out: it is stamped once per flank point rather than
+   * once per character, so a marking follows the body's curve.
+   */
+  slot: "head" | "back" | "body" | "mark";
   pivot: TilePivot;
   draw: (p: Pixels) => void;
 }
@@ -769,32 +874,37 @@ export const IDENTITY_TILES: IdentityTile[] = [
   },
 
   // ---- markings ----
+  //
+  // One mark each, not a pattern. The draw layer stamps them once per flank
+  // point the body reported, rotated to the local surface angle — which is
+  // what makes a stripe pattern bend around a coiling snake instead of lying
+  // flat across it. A pattern baked into one tile could never do that.
   {
-    id: "STRIPES", slot: "body", pivot: { x: c, y: c },
+    id: "STRIPES", slot: "mark", pivot: { x: c, y: c },
     draw: (p) => {
-      for (let i = 0; i < 4; i++) {
-        p.line(c - 5 + i * 3, c - 3, c - 6 + i * 3, c + 3, SHADE);
-      }
+      p.rect(c - 1, c - 3, 2, 6, SHADE);
+      p.rect(c - 1, c - 3, 1, 6, OUTLINE, 90);
     },
   },
   {
-    id: "SPOTS", slot: "body", pivot: { x: c, y: c },
+    id: "SPOTS", slot: "mark", pivot: { x: c, y: c },
     draw: (p) => {
-      const at: [number, number][] = [[-4, -2], [0, -3], [3, -1], [-2, 2], [2, 2]];
-      for (const [dx, dy] of at) p.rect(c + dx, c + dy, 2, 2, SHADE);
+      p.rect(c - 2, c - 2, 2, 2, SHADE);
+      p.rect(c + 1, c, 2, 2, SHADE);
     },
   },
   {
-    id: "PATCH", slot: "body", pivot: { x: c, y: c },
+    id: "PATCH", slot: "mark", pivot: { x: c, y: c },
     draw: (p) => {
-      p.ellipse(c, c, 4, 2.5, SHADE);
-      p.ellipse(c - 1, c - 1, 2, 1, LIGHT);
+      p.ellipse(c, c, 3, 2, SHADE);
+      p.set(c - 1, c - 1, LIGHT);
     },
   },
   {
-    id: "BANDS", slot: "body", pivot: { x: c, y: c },
+    id: "BANDS", slot: "mark", pivot: { x: c, y: c },
     draw: (p) => {
-      for (let i = 0; i < 4; i++) p.rect(c - 5 + i * 3, c - 3, 2, 7, SHADE);
+      p.rect(c - 2, c - 4, 4, 8, SHADE);
+      p.rect(c - 2, c - 4, 1, 8, LIGHT);
     },
   },
 ];
