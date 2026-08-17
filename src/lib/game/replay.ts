@@ -77,6 +77,8 @@ export interface ReplayEvent {
   hpAfter?: number;
   /** Which animation the actor should play. Presentation only. */
   animation: AnimationHint;
+  /** Which animation the target should play. Presentation only. */
+  targetAnimation: AnimationHint;
   /** Whether this beat deserves camera emphasis. Presentation only. */
   emphasis: boolean;
 }
@@ -87,6 +89,15 @@ export interface ReplayTeam {
   formation: FormationId;
   rank: number;
   winProbability: number;
+  /**
+   * Which side of the arena this team occupies, from the seating order.
+   *
+   * Needed because `result.teams` is sorted by **rank**, so its first entry is
+   * the winner. Seating by that order would put the eventual winner on the left
+   * from the opening frame — a spoiler, and a team that changes sides depending
+   * on how the fight ends. Presentation only; nothing reads it but the layout.
+   */
+  seat: number;
 }
 
 export interface Replay {
@@ -133,22 +144,49 @@ function lanePlan(formation: string | undefined): Lane[] {
   return LANE_PLANS[(formation ?? "") as FormationId] ?? LANE_PLANS.BALANCED;
 }
 
-/** Which animation an event asks the actor to play. */
+/**
+ * Which animation an event asks the *actor* to play.
+ *
+ * The actor is always the one doing something. On an ELIMINATION that is the
+ * killer, not the killed — the engine logs `actorId` as whoever landed the
+ * blow — so the finishing move is an attack and the death belongs to the
+ * target below.
+ */
 function animationFor(kind: ReplayEvent["kind"]): AnimationHint {
   switch (kind) {
     case "SPAWN":
       return "IDLE";
     case "ATTACK":
     case "CRIT":
+    case "BLOCK":
+    case "ELIMINATION":
       return "ATTACK";
     case "SPECIAL":
       return "CAST";
+    case "END":
+      return "CHEER";
+    default:
+      return "NONE";
+  }
+}
+
+/**
+ * Which animation the *target* plays.
+ *
+ * Without this, a block is drawn as the attacker guarding against nobody, and
+ * a kill is drawn as the killer dying. Both are presentation, and both are
+ * derived only from the event kind — nothing here reads a result.
+ */
+function targetAnimationFor(kind: ReplayEvent["kind"]): AnimationHint {
+  switch (kind) {
+    case "ATTACK":
+    case "CRIT":
+    case "SPECIAL":
+      return "IMPACT";
     case "BLOCK":
       return "GUARD";
     case "ELIMINATION":
       return "DEATH";
-    case "END":
-      return "CHEER";
     default:
       return "NONE";
   }
@@ -213,6 +251,7 @@ export function toReplay(result: BattleResult, context: ReplayContext): Replay {
     actorId: c.characterId,
     actorTeamId: c.teamId,
     animation: "IDLE" as const,
+    targetAnimation: "NONE" as const,
     emphasis: false,
   }));
 
@@ -228,15 +267,20 @@ export function toReplay(result: BattleResult, context: ReplayContext): Replay {
     // Copied, never derived. Absent stays absent.
     ...(typeof entry.hpAfter === "number" ? { hpAfter: entry.hpAfter } : {}),
     animation: animationFor(entry.kind),
+    targetAnimation: targetAnimationFor(entry.kind),
     emphasis: isEmphatic(entry.kind),
   }));
 
+  // Seats come from the context's player order — the order they sat down in —
+  // not from the result's ranking.
+  const seatOf = new Map(context.players.map((p, i) => [p.playerId, i]));
   const teams: ReplayTeam[] = result.teams.map((t) => ({
     playerId: t.playerId,
     nickname: byPlayer.get(t.playerId)?.nickname ?? "—",
     formation: ((byPlayer.get(t.playerId)?.formation ?? "BALANCED") as FormationId),
     rank: t.rank,
     winProbability: t.winProbability,
+    seat: seatOf.get(t.playerId) ?? 0,
   }));
 
   return {

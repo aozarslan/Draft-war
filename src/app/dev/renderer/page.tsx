@@ -31,6 +31,100 @@ import type { CharacterArt } from "@/lib/render/assets";
 
 const BANDS = computeAxisBands(CHARACTERS);
 
+type RosterMode = "SHOWCASE" | "CATEGORY";
+
+/**
+ * Times the draw directly instead of trusting the frame counter.
+ *
+ * `requestAnimationFrame` is throttled whenever the tab is not painting, so an
+ * fps readout taken from it measures the browser's scheduler rather than the
+ * renderer. Calling `renderAt` in a tight loop measures the thing that actually
+ * has to fit in a frame budget, and it is reproducible.
+ */
+function measure(
+  renderer: BattleRenderer | null,
+  canvas: HTMLCanvasElement | null,
+  durationMs: number,
+): string {
+  if (!renderer || !canvas) return "renderer hazır değil";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "canvas yok";
+
+  const samples = 24;
+  const times = Array.from({ length: samples }, (_, i) => (durationMs * i) / samples);
+  // A one-pixel read forces the canvas to finish the frame. Without it the
+  // draw calls only queue and the loop times command submission, which came
+  // out seventeen times faster than the frame actually costs.
+  const flush = () => ctx.getImageData(0, 0, 1, 1);
+
+  for (const t of times) {
+    renderer.renderAt(t);
+    flush();
+  }
+
+  const runs = 240;
+
+  // The readback is a GPU→CPU sync and costs real time itself, so it is timed
+  // alone first and subtracted. Without that the meter mostly measures its own
+  // instrument: ten milliseconds a frame, nearly all of it the flush.
+  const baseStart = performance.now();
+  for (let i = 0; i < runs; i++) flush();
+  const baseline = (performance.now() - baseStart) / runs;
+
+  const started = performance.now();
+  for (let i = 0; i < runs; i++) {
+    renderer.renderAt(times[i % samples]);
+    flush();
+  }
+  const measured = (performance.now() - started) / runs;
+  const per = Math.max(0, measured - baseline);
+
+  return (
+    `${per.toFixed(2)} ms/kare · ` +
+    `16.7 ms bütçenin %${((per / 16.7) * 100).toFixed(0)}'i · ` +
+    `ölçüm payı ${baseline.toFixed(2)} ms`
+  );
+}
+
+/**
+ * Two ways to fill a 5v5.
+ *
+ * "Category order" is what a real draft roughly looks like. "Showcase" picks
+ * one character per body plan so all six sheets are on the field at once —
+ * which is the only way to see, rather than assert, that they read as different
+ * creatures side by side. Both run the same unmodified simulation.
+ */
+function rosterFor(
+  mode: RosterMode,
+  pool: typeof CHARACTERS,
+): [string[], string[]] | null {
+  if (mode === "CATEGORY" || pool.length < 12) {
+    return [pool.slice(0, 5).map((c) => c.id), pool.slice(5, 10).map((c) => c.id)];
+  }
+
+  // One per archetype, then whatever is left, so the two sides stay five each.
+  const byArchetype = new Map<string, string[]>();
+  for (const c of pool) {
+    const key = visualArchetypeFor(c);
+    byArchetype.set(key, [...(byArchetype.get(key) ?? []), c.id]);
+  }
+
+  const spread: string[] = [];
+  const rest: string[] = [];
+  for (const ids of byArchetype.values()) {
+    spread.push(ids[0]);
+    rest.push(...ids.slice(1));
+  }
+
+  const ten = [...spread, ...rest].slice(0, 10);
+  if (ten.length < 10) return null;
+  // Alternating, so neither side gets all the exotic bodies.
+  return [
+    ten.filter((_, i) => i % 2 === 0),
+    ten.filter((_, i) => i % 2 === 1),
+  ];
+}
+
 export default function RendererHarness() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<BattleRenderer | null>(null);
@@ -38,6 +132,7 @@ export default function RendererHarness() {
 
   const [seed, setSeed] = useState("harness-1");
   const [categoryId, setCategoryId] = useState("marvel");
+  const [roster, setRoster] = useState<RosterMode>("SHOWCASE");
   const [formationA, setFormationA] = useState<FormationId>("AGGRESSIVE");
   const [formationB, setFormationB] = useState<FormationId>("DEFENSIVE");
   const [playing, setPlaying] = useState(true);
@@ -46,6 +141,8 @@ export default function RendererHarness() {
   const [legacy, setLegacy] = useState(false);
   const [sheets, setSheets] = useState(true);
   const [elapsed, setElapsed] = useState(0);
+  const [stats, setStats] = useState({ fps: 0, drawMs: 0, worstMs: 0 });
+  const [bench, setBench] = useState<string | null>(null);
 
   const categories = useMemo(
     () => [...new Set(CHARACTERS.map((c) => c.categoryId))],
@@ -56,18 +153,21 @@ export default function RendererHarness() {
     const pool = CHARACTERS.filter((c) => c.categoryId === categoryId);
     if (pool.length < 10) return null;
 
+    const rosters = rosterFor(roster, pool);
+    if (!rosters) return null;
+
     const result = simulateBattle({
       teams: [
         {
           playerId: "player-a",
-          nickname: "Team A",
-          characters: pool.slice(0, 5).map((c, i) => ({ characterId: c.id, price: 4 + i * 3 })),
+          nickname: "Ege",
+          characters: rosters[0].map((id, i) => ({ characterId: id, price: 4 + i * 3 })),
           formation: formationA,
         },
         {
           playerId: "player-b",
-          nickname: "Team B",
-          characters: pool.slice(5, 10).map((c, i) => ({ characterId: c.id, price: 6 + i * 2 })),
+          nickname: "Mikail",
+          characters: rosters[1].map((id, i) => ({ characterId: id, price: 6 + i * 2 })),
           formation: formationB,
         },
       ],
@@ -93,11 +193,11 @@ export default function RendererHarness() {
     return toReplay(stored, {
       battleId: "harness",
       players: [
-        { playerId: "player-a", nickname: "Team A", formation: formationA },
-        { playerId: "player-b", nickname: "Team B", formation: formationB },
+        { playerId: "player-a", nickname: "Ege", formation: formationA },
+        { playerId: "player-b", nickname: "Mikail", formation: formationB },
       ],
     });
-  }, [seed, categoryId, formationA, formationB, legacy]);
+  }, [seed, categoryId, formationA, formationB, legacy, roster]);
 
   // The static catalogue carries no artwork — thumbnails are enriched into the
   // database. Fetching them here is what actually exercises the portrait path;
@@ -161,7 +261,12 @@ export default function RendererHarness() {
     const onResize = () => renderer.resize();
     window.addEventListener("resize", onResize);
 
+    // Sampled once a second rather than per frame: reading the meter every
+    // frame would itself become part of what the meter measures.
+    const meter = setInterval(() => setStats(renderer.stats()), 1000);
+
     return () => {
+      clearInterval(meter);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
       rendererRef.current = null;
@@ -244,6 +349,18 @@ export default function RendererHarness() {
         </span>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() =>
+            setBench(measure(rendererRef.current, canvasRef.current, replay.durationMs))
+          }
+          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200"
+        >
+          Çizim maliyetini ölç
+        </button>
+        <span className="font-mono text-xs text-slate-400">{bench ?? ""}</span>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
         <label className="space-y-1">
           <span className="text-xs text-slate-400">Seed</span>
@@ -264,6 +381,18 @@ export default function RendererHarness() {
             {categories.map((id) => (
               <option key={id} value={id}>{id}</option>
             ))}
+          </select>
+        </label>
+
+        <label className="space-y-1">
+          <span className="text-xs text-slate-400">Kadro</span>
+          <select
+            value={roster}
+            onChange={(e) => setRoster(e.target.value as RosterMode)}
+            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-100"
+          >
+            <option value="SHOWCASE">Arketip vitrini (6 gövde)</option>
+            <option value="CATEGORY">Kategori sırası</option>
           </select>
         </label>
 
@@ -351,6 +480,12 @@ export default function RendererHarness() {
           {previewArt ? <ArchetypePreview art={previewArt} /> : null}
         </div>
       </section>
+
+      <p className="font-mono text-xs text-slate-400">
+        {stats.fps.toFixed(0)} fps · çizim {stats.drawMs.toFixed(2)} ms · en kötü{" "}
+        {stats.worstMs.toFixed(2)} ms · {replay.combatants.length} savaşçı ·{" "}
+        {new Set(art.filter((a) => replay.combatants.some((c) => c.characterId === a.characterId)).map((a) => a.sheet?.src ?? "—")).size} sheet
+      </p>
 
       <p className="text-xs text-slate-500">
         replayVersion {replay.replayVersion} · rulesVersion {replay.rulesVersion ?? "—"} ·{" "}

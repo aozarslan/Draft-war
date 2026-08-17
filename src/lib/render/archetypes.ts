@@ -27,11 +27,22 @@ import type { CharacterArt, SpriteClip, SpriteSheet } from "./assets";
 export type VisualArchetypeId =
   | "humanoid_medium"
   | "humanoid_large"
+  | "quadruped_small"
   | "quadruped_medium"
   | "quadruped_large"
   | "serpentine"
   | "winged"
   | "aquatic";
+
+/** The body plans that have their own artwork, in the order they were drawn. */
+export const DRAWN_ARCHETYPES: VisualArchetypeId[] = [
+  "humanoid_medium",
+  "quadruped_small",
+  "quadruped_medium",
+  "serpentine",
+  "winged",
+  "aquatic",
+];
 
 /**
  * Where a sprite came from, recorded next to the sprite itself.
@@ -97,33 +108,49 @@ export const SHEET_COLUMNS = Math.max(
 export const SHEET_ROWS =
   Math.max(...Object.values(SHEET_CLIPS).map((c) => c.row)) + 1;
 
-const QUADRUPED_MEDIUM: SpriteSheet = {
-  src: "/sprites/quadruped_medium.png",
+const sheet = (id: VisualArchetypeId): SpriteSheet => ({
+  src: `/sprites/${id}.png`,
   frameWidth: FRAME_SIZE,
   frameHeight: FRAME_SIZE,
   clips: SHEET_CLIPS,
+});
+
+/**
+ * Every drawn body plan comes from the same generator, so they share one
+ * provenance record rather than repeating it six times.
+ */
+const GENERATED: AssetProvenance = {
+  sourceType: "ORIGINAL",
+  sourceReference: null,
+  creator: "DRAFT WAR — scripts/generate-sprites.ts",
+  license: "Project-owned original artwork",
+  version: 1,
+  approved: true,
 };
 
+const drawn = (id: VisualArchetypeId, label: string): VisualArchetype => ({
+  id,
+  label,
+  sheet: sheet(id),
+  provenance: { ...GENERATED },
+});
+
+const undrawn = (id: VisualArchetypeId, label: string): VisualArchetype => ({
+  id,
+  label,
+  sheet: null,
+  provenance: null,
+});
+
 export const VISUAL_ARCHETYPES: Record<VisualArchetypeId, VisualArchetype> = {
-  humanoid_medium: { id: "humanoid_medium", label: "Humanoid", sheet: null, provenance: null },
-  humanoid_large: { id: "humanoid_large", label: "Large humanoid", sheet: null, provenance: null },
-  quadruped_medium: {
-    id: "quadruped_medium",
-    label: "Quadruped",
-    sheet: QUADRUPED_MEDIUM,
-    provenance: {
-      sourceType: "ORIGINAL",
-      sourceReference: null,
-      creator: "DRAFT WAR — scripts/generate-sprites.ts",
-      license: "Project-owned original artwork",
-      version: 1,
-      approved: true,
-    },
-  },
-  quadruped_large: { id: "quadruped_large", label: "Large quadruped", sheet: null, provenance: null },
-  serpentine: { id: "serpentine", label: "Serpentine", sheet: null, provenance: null },
-  winged: { id: "winged", label: "Winged", sheet: null, provenance: null },
-  aquatic: { id: "aquatic", label: "Aquatic", sheet: null, provenance: null },
+  humanoid_medium: drawn("humanoid_medium", "Humanoid"),
+  humanoid_large: undrawn("humanoid_large", "Large humanoid"),
+  quadruped_small: drawn("quadruped_small", "Small quadruped"),
+  quadruped_medium: drawn("quadruped_medium", "Quadruped"),
+  quadruped_large: undrawn("quadruped_large", "Large quadruped"),
+  serpentine: drawn("serpentine", "Serpentine"),
+  winged: drawn("winged", "Winged"),
+  aquatic: drawn("aquatic", "Aquatic"),
 };
 
 /**
@@ -203,8 +230,12 @@ export function visualArchetypeFor(character: ArchetypeInput): VisualArchetypeId
   const tags = new Set(character.tags);
   if (tags.has("reptile")) return "quadruped_medium";
 
+  // Mass is the only axis that says anything about size, and the two
+  // thresholds are where the catalogue actually separates: a badger is not a
+  // small wolf, it is a different silhouette.
   const mass = character.stats.mass ?? 0;
-  return mass >= 70 ? "quadruped_large" : "quadruped_medium";
+  if (mass >= 70) return "quadruped_large";
+  return mass >= 35 ? "quadruped_medium" : "quadruped_small";
 }
 
 /**

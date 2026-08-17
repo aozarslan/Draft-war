@@ -95,10 +95,31 @@ export interface Scene {
   banner: SceneBanner | null;
   /** The event being emphasised right now, for the draw layer to react to. */
   focusEventIndex: number | null;
+  /**
+   * The MVP, once the battle is over and the result is being presented.
+   *
+   * Null before the end, so the crown does not appear over someone who is
+   * about to be eliminated. The identity is the engine's — the scene only
+   * decides when to show it.
+   */
+  mvpCharacterId: string | null;
+  /**
+   * 0..1 while the closing beat plays, for the draw layer's victory treatment.
+   * Timed to the replay's own tail, so it always completes before playback does.
+   */
+  outro: number;
+  /** Copied from the result. An upset gets a louder ending, never a different one. */
+  upset: boolean;
 }
 
 const EFFECT_MS = 420;
 const BANNER_MS = 1600;
+/**
+ * Floor for the closing beat, for the rare replay that ends on its last frame.
+ * An upset is emphasised by how it is drawn, not by stretching time — the
+ * renderer does not get to decide how long a battle lasts.
+ */
+const MIN_OUTRO_MS = 1200;
 const FLASH_MS = 180;
 const CORPSE_FADE_MS = 900;
 
@@ -136,9 +157,11 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
   const now = Math.max(0, elapsedMs);
   const showHealth = replay.combatants.every((c) => typeof c.maxHp === "number");
 
-  // Sides, in the order the teams appear, so it is stable across calls.
+  // Sides come from the seat, never from the array order: `result.teams` is
+  // sorted by rank, so seating by index would place the eventual winner on the
+  // left from the very first frame and give the result away.
   const sideOf = new Map<string, 0 | 1>();
-  replay.teams.forEach((t, i) => sideOf.set(t.playerId, i === 0 ? 0 : 1));
+  replay.teams.forEach((t, i) => sideOf.set(t.playerId, (t.seat ?? i) === 0 ? 0 : 1));
 
   const combatants: SceneCombatant[] = replay.combatants.map((c) => {
     const side = sideOf.get(c.teamId) ?? 0;
@@ -239,6 +262,14 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     camera.y += offset.y;
   }
 
+  // The closing beat runs over whatever the replay leaves after its END event,
+  // not over a constant. A fixed window was longer than the tail of a real
+  // battle, so the crown was still fading in when playback stopped.
+  const endEvent = replay.events.find((e) => e.kind === "END");
+  const endAt = endEvent ? endEvent.atMs : replay.durationMs;
+  const outroMs = Math.max(MIN_OUTRO_MS, replay.durationMs - endAt);
+  const outro = now >= endAt ? clamp01((now - endAt) / outroMs) : 0;
+
   return {
     elapsedMs: now,
     finished: now >= replay.durationMs,
@@ -248,6 +279,11 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     camera,
     banner,
     focusEventIndex,
+    // Only once the fight is over: a crown over someone who is about to be
+    // eliminated would be a spoiler, and a wrong one.
+    mvpCharacterId: outro > 0 ? replay.mvp?.characterId ?? null : null,
+    outro,
+    upset: replay.upset,
   };
 }
 
@@ -274,6 +310,18 @@ function applyEvent(
     }
   }
 
+  // The target reacts. Separate from the actor's animation because they are
+  // different people: on a block the *target* guards, and on an elimination the
+  // *target* dies — the engine logs the killer as the actor.
+  const targetHint = event.targetAnimation ?? "NONE";
+  if (target && targetHint !== "NONE" && ANIMATION_MS[targetHint] > 0) {
+    // A death is not interrupted by the flinch of a later hit on a corpse.
+    if (age < ANIMATION_MS[targetHint] && target.alive) {
+      target.animation = targetHint;
+      target._animAt = event.atMs;
+    }
+  }
+
   switch (event.kind) {
     case "ATTACK":
     case "CRIT":
@@ -289,7 +337,6 @@ function applyEvent(
           progress: clamp01(age / EFFECT_MS),
           ...(typeof event.damage === "number" ? { value: event.damage } : {}),
         });
-        if (target.animation === "IDLE" && age < FLASH_MS) target._animAt = event.atMs;
       }
       if ((event.kind === "CRIT" || event.kind === "SPECIAL") && age < 320) {
         setShake({ magnitude: event.kind === "CRIT" ? 6 : 4 });

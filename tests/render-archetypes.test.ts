@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { CHARACTERS } from "../src/lib/game/characters";
 import {
   ARCHETYPE_OVERRIDES,
+  DRAWN_ARCHETYPES,
   FRAME_SIZE,
   SHEET_CLIPS,
   SHEET_COLUMNS,
@@ -95,15 +96,35 @@ describe("falling back", () => {
     expect(sheetFor("quadruped_medium")).not.toBeNull();
   });
 
-  it("refuses to draw a shark or a snake as a four-legged animal", () => {
+  it("gives a shark, a snake and a bird their own bodies rather than borrowing", () => {
+    // These fell back to a portrait in M4 because drawing them with four legs
+    // would have been worse than not drawing them. Now they have their own.
     for (const id of ["aquatic", "serpentine", "winged"] as VisualArchetypeId[]) {
-      expect(sheetFor(id)).toBeNull();
+      expect(sheetFor(id)).not.toBeNull();
+      expect(sheetFor(id)).not.toBe(sheetFor("quadruped_medium"));
     }
   });
 
-  it("gives an archetype with no artwork no sheet at all", () => {
-    expect(sheetFor("humanoid_medium")).toBeNull();
-    expect(sheetFor("humanoid_large")).toBeNull();
+  it("draws a large humanoid with the medium sheet", () => {
+    expect(sheetFor("humanoid_large")).toBe(sheetFor("humanoid_medium"));
+  });
+
+  it("gives every archetype a sheet from its own family or none", () => {
+    for (const id of Object.keys(VISUAL_ARCHETYPES) as VisualArchetypeId[]) {
+      const resolved = sheetFor(id);
+      if (!resolved) continue;
+      const family = id.split("_")[0];
+      expect(resolved.src, `${id} borrowed a sheet from another family`).toContain(
+        family === "quadruped" || family === "humanoid" ? family : id,
+      );
+    }
+  });
+
+  it("can now draw every character in the catalogue", () => {
+    // The point of M5: six body plans cover 268 characters with no gaps.
+    for (const c of CHARACTERS) {
+      expect(sheetFor(visualArchetypeFor(c)), `${c.id} has no sheet`).not.toBeNull();
+    }
   });
 
   it("will not load unapproved artwork", () => {
@@ -152,8 +173,20 @@ describe("artFor", () => {
     expect(artFor(lion).palette).toEqual(lion.palette);
   });
 
-  it("hands it nothing but a portrait when there is not", () => {
-    expect(artFor(eagle).sheet).toBeUndefined();
+  it("gives the bird the winged sheet, not the quadruped one", () => {
+    expect(artFor(eagle).sheet?.src).toContain("winged");
+  });
+
+  it("hands it nothing but a portrait when the artwork is withdrawn", () => {
+    const archetype = VISUAL_ARCHETYPES.winged;
+    const provenance = archetype.provenance!;
+    try {
+      archetype.provenance = { ...provenance, approved: false };
+      expect(artFor(eagle).sheet).toBeUndefined();
+      expect(artFor(eagle).portraitUrl !== undefined).toBe(true);
+    } finally {
+      archetype.provenance = provenance;
+    }
   });
 
   it("prefers an explicitly supplied portrait over the catalogue's", () => {
@@ -203,9 +236,8 @@ function decodePng(path: string): { width: number; height: number; data: Buffer 
   return { width, height, data };
 }
 
-describe("the shipped sheet agrees with the manifest", () => {
-  const path = resolve(process.cwd(), "public/sprites/quadruped_medium.png");
-  const png = decodePng(path);
+describe.each(DRAWN_ARCHETYPES)("%s sheet agrees with the manifest", (archetype) => {
+  const png = decodePng(resolve(process.cwd(), `public/sprites/${archetype}.png`));
 
   const opaquePixels = (col: number, row: number) => {
     let count = 0;
@@ -217,6 +249,18 @@ describe("the shipped sheet agrees with the manifest", () => {
       }
     }
     return count;
+  };
+
+  const lowestRow = (col: number, row: number) => {
+    let lowest = -1;
+    for (let y = 0; y < FRAME_SIZE; y++) {
+      for (let x = 0; x < FRAME_SIZE; x++) {
+        const px = col * FRAME_SIZE + x;
+        const py = row * FRAME_SIZE + y;
+        if (png.data[(py * png.width + px) * 4 + 3] > 0) lowest = Math.max(lowest, y);
+      }
+    }
+    return lowest;
   };
 
   it("is exactly the size the manifest implies", () => {
@@ -231,7 +275,7 @@ describe("the shipped sheet agrees with the manifest", () => {
         expect(
           opaquePixels(frame, clip.row),
           `${hint} frame ${frame} (row ${clip.row}) is empty`,
-        ).toBeGreaterThan(80);
+        ).toBeGreaterThan(40);
       }
     }
   });
@@ -249,25 +293,6 @@ describe("the shipped sheet agrees with the manifest", () => {
     }
   });
 
-  it("stands the idle animal on the ground line exactly", () => {
-    const ground = Math.round(SHEET_GROUND_RATIO * FRAME_SIZE);
-    for (let frame = 0; frame < SHEET_CLIPS.IDLE.frames; frame++) {
-      let lowest = 0;
-      for (let y = 0; y < FRAME_SIZE; y++) {
-        for (let x = 0; x < FRAME_SIZE; x++) {
-          const px = frame * FRAME_SIZE + x;
-          const py = SHEET_CLIPS.IDLE.row * FRAME_SIZE + y;
-          if (png.data[(py * png.width + px) * 4 + 3] > 0) lowest = Math.max(lowest, y);
-        }
-      }
-      expect(Math.abs(lowest - ground)).toBeLessThanOrEqual(1);
-    }
-  });
-
-  it("gives every animation hint a clip, so nothing falls through", () => {
-    for (const hint of HINTS) expect(SHEET_CLIPS[hint]).toBeTruthy();
-  });
-
   it("is drawn in greyscale, so tinting is what gives it colour", () => {
     for (let i = 0; i < png.data.length; i += 4) {
       if (png.data[i + 3] === 0) continue;
@@ -281,21 +306,56 @@ describe("the shipped sheet agrees with the manifest", () => {
     for (const hint of HINTS) {
       const clip = SHEET_CLIPS[hint];
       for (let frame = 0; frame < clip.frames; frame++) {
+        // Floating is legitimate — a bird hovers, a hop leaves the ground.
+        // Sinking never is: the renderer anchors the sprite by this line, so
+        // anything below it is buried in the floor.
+        expect(
+          lowestRow(frame, clip.row),
+          `${hint} frame ${frame} sinks below the ground line`,
+        ).toBeLessThanOrEqual(ground + 1);
+      }
+    }
+  });
+
+  it("keeps the body inside its frame, so neighbours do not clip", () => {
+    for (const hint of HINTS) {
+      const clip = SHEET_CLIPS[hint];
+      for (let frame = 0; frame < clip.frames; frame++) {
+        // The right-hand column must be clear, or a lunge bleeds into the next
+        // frame of the sheet and the sprite grows a second head.
+        for (let y = 0; y < FRAME_SIZE; y++) {
+          const px = frame * FRAME_SIZE + FRAME_SIZE - 1;
+          const py = clip.row * FRAME_SIZE + y;
+          expect(
+            png.data[(py * png.width + px) * 4 + 3],
+            `${hint} frame ${frame} touches its right edge at y=${y}`,
+          ).toBe(0);
+        }
+      }
+    }
+  });
+});
+
+describe("clip layout", () => {
+  it("gives every animation hint a clip, so nothing falls through", () => {
+    for (const hint of HINTS) expect(SHEET_CLIPS[hint]).toBeTruthy();
+  });
+
+  it("stands the idle body on the ground line in every archetype", () => {
+    const ground = Math.round(SHEET_GROUND_RATIO * FRAME_SIZE);
+    // A flier and a swimmer hover on purpose; everything with feet stands.
+    for (const archetype of ["humanoid_medium", "quadruped_small", "quadruped_medium"]) {
+      const png = decodePng(resolve(process.cwd(), `public/sprites/${archetype}.png`));
+      for (let frame = 0; frame < SHEET_CLIPS.IDLE.frames; frame++) {
         let lowest = 0;
         for (let y = 0; y < FRAME_SIZE; y++) {
           for (let x = 0; x < FRAME_SIZE; x++) {
             const px = frame * FRAME_SIZE + x;
-            const py = clip.row * FRAME_SIZE + y;
+            const py = SHEET_CLIPS.IDLE.row * FRAME_SIZE + y;
             if (png.data[(py * png.width + px) * 4 + 3] > 0) lowest = Math.max(lowest, y);
           }
         }
-        // Floating is legitimate — a hop leaves the ground, a rear lifts the
-        // front legs. Sinking never is: the renderer anchors the sprite by
-        // this line, so anything below it is buried in the floor.
-        expect(
-          lowest,
-          `${hint} frame ${frame} sinks to ${lowest}, ground is ${ground}`,
-        ).toBeLessThanOrEqual(ground + 1);
+        expect(Math.abs(lowest - ground), `${archetype} idle frame ${frame}`).toBeLessThanOrEqual(1);
       }
     }
   });

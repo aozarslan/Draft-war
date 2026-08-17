@@ -140,8 +140,27 @@ describe("events", () => {
     const replay = toReplay(run("replay-8"), context);
     for (const e of replay.events) expect(e.animation).toBeTruthy();
     expect(replay.events.some((e) => e.emphasis)).toBe(true);
-    expect(replay.events.find((e) => e.kind === "ELIMINATION")?.animation).toBe("DEATH");
     expect(replay.events.find((e) => e.kind === "SPECIAL")?.animation ?? "CAST").toBe("CAST");
+  });
+
+  it("makes the right person die, and the right person block", () => {
+    const replay = toReplay(run("replay-9"), context);
+
+    // The engine logs the killer as the actor on an ELIMINATION. Playing the
+    // actor's animation there would have the killer fall over.
+    const kill = replay.events.find((e) => e.kind === "ELIMINATION")!;
+    expect(kill.animation).toBe("ATTACK");
+    expect(kill.targetAnimation).toBe("DEATH");
+
+    const block = replay.events.find((e) => e.kind === "BLOCK");
+    if (block) {
+      expect(block.animation).toBe("ATTACK");
+      expect(block.targetAnimation).toBe("GUARD");
+    }
+
+    // Everyone on the receiving end of a hit flinches.
+    const hit = replay.events.find((e) => e.kind === "ATTACK" && e.targetId)!;
+    expect(hit.targetAnimation).toBe("IMPACT");
   });
 });
 

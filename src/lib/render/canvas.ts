@@ -37,6 +37,14 @@ export interface BattleRendererOptions {
 const SPRITE_SIZE = 22; // arena units
 /** A sprite frame is mostly empty, so it is drawn larger than the disc it replaces. */
 const SHEET_SCALE = 1.5;
+/** How many frames the performance meter averages over. */
+const SAMPLE_FRAMES = 120;
+/**
+ * The furthest the camera ever strays from centre: the largest shake plus the
+ * pan toward a focused event. The ground is filled to cover exactly this and
+ * no more.
+ */
+const MAX_CAMERA_OFFSET = 24;
 const BAR_WIDTH = 22;
 const BAR_HEIGHT = 3;
 
@@ -55,6 +63,8 @@ export class BattleRenderer {
   private running = false;
   /** Which events have already thrown sparks, so a repaint does not re-emit. */
   private sparked = new Set<number>();
+  private readonly frameTimes: number[] = [];
+  private readonly intervals: number[] = [];
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
@@ -86,10 +96,43 @@ export class BattleRenderer {
       const dt = this.lastTs ? (ts - this.lastTs) / 1000 : 0;
       this.lastTs = ts;
       this.particles.update(dt);
+
+      const started = performance.now();
       this.renderAt(this.clock());
+      this.recordFrame(performance.now() - started, dt);
+
       this.frame = requestAnimationFrame(loop);
     };
     this.frame = requestAnimationFrame(loop);
+  }
+
+  /**
+   * What the last few seconds actually cost.
+   *
+   * Measured rather than assumed: ten combatants, ten tinted sheets and a
+   * particle pool is the load the game will really run, and the only way to
+   * know it fits in a frame is to time it on the device it runs on.
+   */
+  stats(): { fps: number; drawMs: number; worstMs: number } {
+    const frames = this.frameTimes.length;
+    if (frames === 0) return { fps: 0, drawMs: 0, worstMs: 0 };
+    const total = this.frameTimes.reduce((s, v) => s + v, 0);
+    return {
+      fps: this.intervals.length
+        ? this.intervals.length / this.intervals.reduce((s, v) => s + v, 0)
+        : 0,
+      drawMs: total / frames,
+      worstMs: Math.max(...this.frameTimes),
+    };
+  }
+
+  private recordFrame(drawMs: number, dt: number): void {
+    this.frameTimes.push(drawMs);
+    if (this.frameTimes.length > SAMPLE_FRAMES) this.frameTimes.shift();
+    if (dt > 0) {
+      this.intervals.push(dt);
+      if (this.intervals.length > SAMPLE_FRAMES) this.intervals.shift();
+    }
   }
 
   stop(): void {
@@ -160,6 +203,7 @@ export class BattleRenderer {
     for (const c of ordered) this.drawCombatant(ctx, c, scene.showHealth);
 
     this.drawEffects(ctx, scene);
+    if (scene.mvpCharacterId) this.drawMvp(ctx, scene);
     if (!this.reducedMotion) this.drawParticles(ctx);
 
     ctx.restore();
@@ -174,7 +218,14 @@ export class BattleRenderer {
     gradient.addColorStop(0, "#0b1220");
     gradient.addColorStop(1, "#111c30");
     ctx.fillStyle = gradient;
-    ctx.fillRect(-ARENA.width, -ARENA.height, ARENA.width * 3, ARENA.height * 3);
+    // Just enough margin to cover the camera's shake and zoom. It used to fill
+    // three arenas by three, which is nine times the area of a gradient fill
+    // every single frame for a border nobody ever sees.
+    const margin = MAX_CAMERA_OFFSET;
+    ctx.fillRect(
+      -margin, -margin,
+      ARENA.width + margin * 2, ARENA.height + margin * 2,
+    );
 
     // A centre line, so the two sides read as two sides.
     ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
@@ -347,6 +398,48 @@ export class BattleRenderer {
     }
   }
 
+  /**
+   * Marks the MVP once the fight is over.
+   *
+   * A ring and a chevron rather than a label: the name is already on the
+   * results screen, and at twenty-two pixels a word is unreadable anyway. The
+   * character is the engine's choice; all this decides is where to draw.
+   */
+  private drawMvp(ctx: CanvasRenderingContext2D, scene: Scene): void {
+    const mvp = scene.combatants.find((c) => c.characterId === scene.mvpCharacterId);
+    if (!mvp) return;
+
+    const t = easeOutCubic(scene.outro);
+    const half = SPRITE_SIZE / 2;
+    const pulse = 1 + Math.sin(scene.elapsedMs / 260) * 0.06;
+
+    ctx.save();
+    ctx.globalAlpha = t;
+    ctx.strokeStyle = "#facc15";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(
+      mvp.x, mvp.y + half,
+      (SPRITE_SIZE / 2.1) * pulse, (SPRITE_SIZE / 5.5) * pulse,
+      0, 0, Math.PI * 2,
+    );
+    ctx.stroke();
+
+    // A chevron above the head, dropping into place.
+    const top = mvp.y - half - 8 - (1 - t) * 10;
+    ctx.fillStyle = "#facc15";
+    ctx.beginPath();
+    ctx.moveTo(mvp.x, top + 5);
+    ctx.lineTo(mvp.x - 4, top);
+    ctx.lineTo(mvp.x - 2, top);
+    ctx.lineTo(mvp.x, top + 2.5);
+    ctx.lineTo(mvp.x + 2, top);
+    ctx.lineTo(mvp.x + 4, top);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   private drawParticles(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     this.particles.forEach((p) => {
@@ -366,9 +459,16 @@ export class BattleRenderer {
     const width = rect.width || this.canvas.width;
     const height = rect.height || this.canvas.height;
 
-    // In for a fifth, hold, out for the last fifth.
+    // In for a fifth, then hold — except a phase divider, which fades back out.
+    // The victory band is the final state of the replay and must not vanish
+    // before playback stops, which is exactly what it used to do.
+    const fadesOut = kind === "PHASE";
     const alpha =
-      progress < 0.2 ? progress / 0.2 : progress > 0.8 ? (1 - progress) / 0.2 : 1;
+      progress < 0.2
+        ? progress / 0.2
+        : fadesOut && progress > 0.8
+          ? (1 - progress) / 0.2
+          : 1;
     const slide = (1 - easeOutBack(clamp01(progress / 0.2))) * 16;
 
     ctx.save();
@@ -377,13 +477,37 @@ export class BattleRenderer {
     ctx.textBaseline = "middle";
 
     const y = kind === "VICTORY" ? height / 2 : height * 0.18;
+    const tall = kind === "TURNING_POINT" || kind === "VICTORY";
+
     ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
-    ctx.fillRect(0, y - 14 + slide, width, 28);
+    ctx.fillRect(0, y - (tall ? 20 : 14) + slide, width, tall ? 40 : 28);
+
+    // A turning point and an upset get a rule above and below the band. It is
+    // the cheapest way to make a beat feel bigger than a phase divider without
+    // moving the camera, which would fight the shake already happening.
+    if (tall) {
+      ctx.strokeStyle = kind === "TURNING_POINT" ? "#f59e0b" : "#22c55e";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y - 20 + slide);
+      ctx.lineTo(width, y - 20 + slide);
+      ctx.moveTo(0, y + 20 + slide);
+      ctx.lineTo(width, y + 20 + slide);
+      ctx.stroke();
+    }
 
     ctx.fillStyle =
       kind === "TURNING_POINT" ? "#f59e0b" : kind === "VICTORY" ? "#22c55e" : "#e2e8f0";
     ctx.font = `bold ${kind === "VICTORY" ? 18 : 13}px ui-sans-serif, system-ui, sans-serif`;
     ctx.fillText(text, width / 2, y + slide);
+
+    // An upset says so, under the result. The engine decided it was one; this
+    // only makes that visible instead of leaving it in a results table.
+    if (kind === "VICTORY" && scene.upset) {
+      ctx.fillStyle = "#f472b6";
+      ctx.font = "bold 11px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText("UPSET", width / 2, y + 26 + slide);
+    }
     ctx.restore();
   }
 
