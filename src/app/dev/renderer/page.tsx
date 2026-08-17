@@ -358,6 +358,28 @@ export default function RendererHarness() {
         >
           Çizim maliyetini ölç
         </button>
+        {/* Stepping between the loud beats is the only practical way to look
+            at a crit, a block or an elimination as a still frame. */}
+        {(["CRIT", "BLOCK", "SPECIAL", "ELIMINATION", "TURNING_POINT"] as const).map((kind) => (
+          <button
+            key={kind}
+            onClick={() => {
+              const next =
+                replay.events.find((e) => e.kind === kind && e.atMs > elapsed + 30) ??
+                replay.events.find((e) => e.kind === kind);
+              if (!next) return;
+              setPlaying(false);
+              const at = next.atMs + 70;
+              elapsedRef.current = at;
+              setElapsed(at);
+              rendererRef.current?.renderAt(at);
+            }}
+            className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-slate-300 disabled:opacity-30"
+            disabled={!replay.events.some((e) => e.kind === kind)}
+          >
+            {kind}
+          </button>
+        ))}
         <span className="font-mono text-xs text-slate-400">{bench ?? ""}</span>
       </div>
 
@@ -491,6 +513,8 @@ export default function RendererHarness() {
         replayVersion {replay.replayVersion} · rulesVersion {replay.rulesVersion ?? "—"} ·{" "}
         {replay.events.length} olay · kazanan{" "}
         {replay.teams.find((t) => t.playerId === replay.winnerPlayerId)?.nickname}
+        {replay.upset ? " · UPSET" : ""}
+        {replay.turningPoint ? " · dönüm noktası var" : ""}
         {replay.replayVersion === 0 ? " · can barı yok (eski maç)" : ""}
       </p>
     </main>

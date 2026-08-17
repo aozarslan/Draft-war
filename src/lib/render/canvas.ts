@@ -19,7 +19,13 @@ import type { Replay } from "@/lib/game/replay";
 import { AssetStore, type CharacterArt } from "./assets";
 import { SHEET_GROUND_RATIO } from "./archetypes";
 import { ParticlePool } from "./particles";
-import { ARENA, sceneAt, type Scene, type SceneCombatant } from "./scene";
+import {
+  ARENA,
+  MAX_CAMERA_OFFSET,
+  sceneAt,
+  type Scene,
+  type SceneCombatant,
+} from "./scene";
 import { clamp01, easeOutBack, easeOutCubic, easeOutQuad } from "./easing";
 
 export interface BattleRendererOptions {
@@ -39,12 +45,14 @@ const SPRITE_SIZE = 22; // arena units
 const SHEET_SCALE = 1.5;
 /** How many frames the performance meter averages over. */
 const SAMPLE_FRAMES = 120;
-/**
- * The furthest the camera ever strays from centre: the largest shake plus the
- * pan toward a focused event. The ground is filled to cover exactly this and
- * no more.
- */
-const MAX_CAMERA_OFFSET = 24;
+/** The colour a blow travels in, per kind. */
+const STRIKE_COLOR: Record<string, string> = {
+  HIT: "#e2e8f0",
+  CRIT: "#f97316",
+  SPECIAL: "#c084fc",
+  GUARD: "#38bdf8",
+  DEATH: "#f8fafc",
+};
 const BAR_WIDTH = 22;
 const BAR_HEIGHT = 3;
 
@@ -190,7 +198,7 @@ export class BattleRenderer {
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
     const cam = this.reducedMotion
-      ? { x: ARENA.width / 2, y: ARENA.height / 2, zoom: 1 }
+      ? { x: ARENA.width / 2, y: ARENA.height / 2, zoom: 1, shake: 0 }
       : scene.camera;
     ctx.translate(ARENA.width / 2, ARENA.height / 2);
     ctx.scale(cam.zoom, cam.zoom);
@@ -208,7 +216,80 @@ export class BattleRenderer {
 
     ctx.restore();
 
+    // Screen space from here: a vignette that shook with the camera would read
+    // as a bug, and banner text has to stay level.
+    this.drawCinematic(ctx, scene);
     this.drawBanner(ctx, scene);
+  }
+
+  /**
+   * The short, loud moments: a turning point and an upset.
+   *
+   * A vignette and letterbox bars rather than slow motion, because slowing the
+   * picture down would mean the renderer deciding how long the battle lasts.
+   * The whole moment fits inside time the engine already allotted.
+   */
+  private drawCinematic(ctx: CanvasRenderingContext2D, scene: Scene): void {
+    if (!scene.cinematic) return;
+    const { kind, progress, intensity } = scene.cinematic;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const width = rect.width || this.canvas.width;
+    const height = rect.height || this.canvas.height;
+
+    const strength = clamp01(intensity);
+    if (strength <= 0) return;
+
+    ctx.save();
+
+    // Vignette: darkens the edges so the eye goes to the middle of the arena.
+    const vignette = ctx.createRadialGradient(
+      width / 2, height / 2, Math.min(width, height) * 0.22,
+      width / 2, height / 2, Math.max(width, height) * 0.62,
+    );
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, `rgba(0,0,0,${0.55 * strength})`);
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+
+    // Letterbox bars slide in from top and bottom.
+    const bar = height * 0.075 * easeOutCubic(strength);
+    ctx.fillStyle = "rgba(2,6,23,0.92)";
+    ctx.fillRect(0, 0, width, bar);
+    ctx.fillRect(0, height - bar, width, bar);
+
+    // Screen-space type has to scale with the canvas or it swamps a phone: at
+    // a fixed 26px the upset stamp landed on top of the victory banner.
+    const scale = clamp01((height - 220) / 520) * 0.6 + 0.7;
+    const accent = kind === "UPSET" ? "#f472b6" : "#f59e0b";
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = strength;
+    ctx.fillRect(0, bar, width, 1);
+    ctx.fillRect(0, height - bar - 1, width, 1);
+
+    if (kind === "UPSET") {
+      // A stamp that lands rather than fades: the result is unchanged, but the
+      // fact that the engine called it an upset should be impossible to miss.
+      const drop = easeOutBack(clamp01(progress / 0.35));
+      ctx.save();
+      // Well clear of the victory band in the middle of the frame.
+      ctx.translate(width / 2, height * 0.26);
+      ctx.scale(scale * (0.6 + drop * 0.4), scale * (0.6 + drop * 0.4));
+      ctx.rotate(-0.06);
+      ctx.globalAlpha = strength;
+      ctx.fillStyle = accent;
+      ctx.font = "bold 26px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("UPSET", 0, 0);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = strength * 0.7;
+      ctx.strokeRect(-56, -17, 112, 34);
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   // -- pieces ---------------------------------------------------------------
@@ -242,7 +323,9 @@ export class BattleRenderer {
     showHealth: boolean,
   ): void {
     const x = c.x + c.lunge;
-    const y = c.y;
+    // The body sinks as it fades, so a corpse settles instead of hanging in
+    // the air at a quarter opacity where the survivors are.
+    const y = c.y + c.lungeY + c.sink * 3;
 
     ctx.save();
     ctx.globalAlpha = c.opacity;
@@ -278,7 +361,7 @@ export class BattleRenderer {
       // air above the animal, so centring it leaves the sprite hovering over
       // its own shadow.
       const drawSize = SPRITE_SIZE * SHEET_SCALE;
-      const feet = y + SPRITE_SIZE / 2;
+      const feet = feetY;
       ctx.save();
       ctx.translate(x, feet - SHEET_GROUND_RATIO * drawSize);
       ctx.scale(c.facing, 1);
@@ -343,9 +426,19 @@ export class BattleRenderer {
     // denominator. A pre-V5 battle shows none at all rather than a guess.
     if (showHealth && c.health !== null && c.alive) {
       const bx = x - BAR_WIDTH / 2;
-      const by = y - half - 6;
-      ctx.fillStyle = "rgba(2, 6, 23, 0.8)";
-      ctx.fillRect(bx, by, BAR_WIDTH, BAR_HEIGHT);
+      const by = y - half - 7;
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.85)";
+      ctx.fillRect(bx - 0.5, by - 0.5, BAR_WIDTH + 1, BAR_HEIGHT + 1);
+
+      // The trailing bar drains down to the real one over half a second. The
+      // gap between them *is* the last hit, which makes the size of a blow
+      // readable without anyone reading the number.
+      if (c.healthTrail !== null && c.healthTrail > c.health) {
+        ctx.fillStyle = "#fca5a5";
+        ctx.fillRect(bx, by, BAR_WIDTH * c.healthTrail, BAR_HEIGHT);
+      }
+
       ctx.fillStyle =
         c.health > 0.5 ? "#22c55e" : c.health > 0.2 ? "#f59e0b" : "#ef4444";
       ctx.fillRect(bx, by, BAR_WIDTH * c.health, BAR_HEIGHT);
@@ -354,44 +447,160 @@ export class BattleRenderer {
     ctx.restore();
   }
 
+  /**
+   * The visual vocabulary of a blow.
+   *
+   * Each kind has to be tellable from the others at a glance and at speed, so
+   * they differ on three axes at once — colour, shape and motion — rather than
+   * on colour alone. A block is cyan, a flat shield on the side it was struck
+   * from, and does not shake. A crit is orange, a double ring, and does. A
+   * special is violet with a glow at the caster as well as the target. A plain
+   * hit is a small white spark. An elimination is a white shockwave.
+   */
   private drawEffects(ctx: CanvasRenderingContext2D, scene: Scene): void {
     for (const effect of scene.effects) {
       const t = effect.progress;
       ctx.save();
 
-      if (effect.kind === "GUARD") {
-        ctx.globalAlpha = 1 - t;
-        ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 1.5;
+      // The line back to whoever threw it. Without this, ten combatants trade
+      // blows and nothing on screen says who hit whom.
+      if (
+        effect.fromX !== null && effect.fromY !== null &&
+        effect.kind !== "CAST" && t < 0.55
+      ) {
+        const lead = clamp01(t / 0.55);
+        const fade = 1 - lead;
+        ctx.globalAlpha = fade * 0.7;
+        ctx.strokeStyle = STRIKE_COLOR[effect.kind] ?? "#e2e8f0";
+        ctx.lineWidth = effect.kind === "CRIT" ? 1.8 : 1;
+        // Drawn as a receding tail rather than a full line: a static line
+        // between two sprites reads as a wire, a shrinking one reads as travel.
+        const hx = effect.fromX + (effect.x - effect.fromX) * (0.25 + lead * 0.75);
+        const hy = effect.fromY + (effect.y - effect.fromY) * (0.25 + lead * 0.75);
         ctx.beginPath();
-        ctx.arc(effect.x, effect.y, 12 + easeOutQuad(t) * 5, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (effect.kind === "DEATH") {
-        ctx.globalAlpha = 1 - t;
-        ctx.strokeStyle = "#e2e8f0";
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(effect.x, effect.y, easeOutCubic(t) * 22, 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        const color =
-          effect.kind === "CRIT" ? "#f97316" : effect.kind === "SPECIAL" ? "#a855f7" : "#e2e8f0";
-        ctx.globalAlpha = 1 - t;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = effect.kind === "CRIT" ? 2 : 1.2;
-        const r = easeOutCubic(t) * (effect.kind === "CRIT" ? 20 : 14);
-        ctx.beginPath();
-        ctx.arc(effect.x, effect.y, r, 0, Math.PI * 2);
+        ctx.moveTo(effect.fromX + (effect.x - effect.fromX) * lead * 0.6, 
+                   effect.fromY + (effect.y - effect.fromY) * lead * 0.6);
+        ctx.lineTo(hx, hy);
         ctx.stroke();
       }
 
-      // Damage numbers float and fade. The number itself is the engine's.
+      const angle =
+        effect.fromX !== null && effect.fromY !== null
+          ? Math.atan2(effect.fromY - effect.y, effect.fromX - effect.x)
+          : Math.PI;
+
+      switch (effect.kind) {
+        case "GUARD": {
+          // A shield arc facing the blow, holding rather than expanding: a
+          // block is the absence of impact and should not look like one.
+          ctx.globalAlpha = (1 - t) * 0.95;
+          ctx.strokeStyle = "#38bdf8";
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, 11 + easeOutQuad(t) * 2, angle - 0.9, angle + 0.9);
+          ctx.stroke();
+          ctx.globalAlpha = (1 - t) * 0.35;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, 14 + easeOutQuad(t) * 2, angle - 0.7, angle + 0.7);
+          ctx.stroke();
+          break;
+        }
+
+        case "CRIT": {
+          ctx.globalAlpha = 1 - t;
+          ctx.strokeStyle = "#f97316";
+          ctx.lineWidth = 2.4;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 21, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = (1 - t) * 0.6;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 13, 0, Math.PI * 2);
+          ctx.stroke();
+          // Four spikes, so a crit is a shape and not just a bigger circle.
+          ctx.globalAlpha = 1 - t;
+          ctx.lineWidth = 1.6;
+          for (let i = 0; i < 4; i++) {
+            const a = angle + (i * Math.PI) / 2 + 0.4;
+            const inner = 6 + easeOutCubic(t) * 8;
+            const outer = inner + 7 * (1 - t);
+            ctx.beginPath();
+            ctx.moveTo(effect.x + Math.cos(a) * inner, effect.y + Math.sin(a) * inner);
+            ctx.lineTo(effect.x + Math.cos(a) * outer, effect.y + Math.sin(a) * outer);
+            ctx.stroke();
+          }
+          break;
+        }
+
+        case "SPECIAL": {
+          ctx.globalAlpha = 1 - t;
+          ctx.strokeStyle = "#c084fc";
+          ctx.lineWidth = 1.8;
+          // A rotating pair of arcs: unmistakable against the plain rings.
+          for (let i = 0; i < 2; i++) {
+            const a = angle + i * Math.PI + t * 2.2;
+            ctx.beginPath();
+            ctx.arc(effect.x, effect.y, 8 + easeOutCubic(t) * 11, a, a + 1.6);
+            ctx.stroke();
+          }
+          break;
+        }
+
+        case "CAST": {
+          // The caster's own glow, so a special reads as something someone did.
+          ctx.globalAlpha = (1 - t) * 0.8;
+          ctx.strokeStyle = "#a855f7";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, 13 - easeOutQuad(t) * 7, 0, Math.PI * 2);
+          ctx.stroke();
+          break;
+        }
+
+        case "DEATH": {
+          ctx.globalAlpha = 1 - t;
+          ctx.strokeStyle = "#f8fafc";
+          ctx.lineWidth = 2 * (1 - t) + 0.6;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 24, 0, Math.PI * 2);
+          ctx.stroke();
+          break;
+        }
+
+        default: {
+          ctx.globalAlpha = 1 - t;
+          ctx.strokeStyle = "#e2e8f0";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(effect.x, effect.y, easeOutCubic(t) * 13, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // Damage numbers float and fade. The number itself is the engine's — a
+      // blocked hit still did damage, so it is shown, just muted and marked.
       if (typeof effect.value === "number" && effect.value > 0) {
+        const rise = 14 + easeOutCubic(t) * 11;
         ctx.globalAlpha = 1 - easeOutQuad(t);
-        ctx.fillStyle = effect.kind === "CRIT" ? "#fb923c" : "#f8fafc";
-        ctx.font = `bold ${effect.kind === "CRIT" ? 11 : 9}px ui-sans-serif, system-ui, sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText(String(effect.value), effect.x, effect.y - 14 - easeOutCubic(t) * 10);
+
+        if (effect.kind === "CRIT") {
+          ctx.fillStyle = "#fb923c";
+          ctx.font = "bold 12px ui-sans-serif, system-ui, sans-serif";
+          ctx.fillText(`${effect.value}!`, effect.x, effect.y - rise);
+        } else if (effect.blocked) {
+          ctx.fillStyle = "#7dd3fc";
+          ctx.font = "bold 9px ui-sans-serif, system-ui, sans-serif";
+          ctx.fillText(`${effect.value}`, effect.x, effect.y - rise);
+          ctx.font = "bold 7px ui-sans-serif, system-ui, sans-serif";
+          ctx.fillText("BLOCK", effect.x, effect.y - rise + 8);
+        } else {
+          ctx.fillStyle = effect.kind === "SPECIAL" ? "#d8b4fe" : "#f8fafc";
+          ctx.font = `bold ${effect.kind === "SPECIAL" ? 11 : 9}px ui-sans-serif, system-ui, sans-serif`;
+          ctx.fillText(String(effect.value), effect.x, effect.y - rise);
+        }
       }
 
       ctx.restore();
@@ -476,11 +685,16 @@ export class BattleRenderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const y = kind === "VICTORY" ? height / 2 : height * 0.18;
-    const tall = kind === "TURNING_POINT" || kind === "VICTORY";
+    // A turning point sits centred like a title card. Left at the top it drew a
+    // second dark band directly under the cinematic's letterbox bar, which read
+    // as two stacked bars rather than one moment.
+    const centred = kind === "VICTORY" || kind === "TURNING_POINT";
+    const y = centred ? height / 2 : height * 0.18;
+    const tall = centred;
 
+    const bandHalf = Math.round((tall ? 20 : 14) * (clamp01((height - 220) / 520) * 0.6 + 0.7));
     ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
-    ctx.fillRect(0, y - (tall ? 20 : 14) + slide, width, tall ? 40 : 28);
+    ctx.fillRect(0, y - bandHalf + slide, width, bandHalf * 2);
 
     // A turning point and an upset get a rule above and below the band. It is
     // the cheapest way to make a beat feel bigger than a phase divider without
@@ -489,25 +703,23 @@ export class BattleRenderer {
       ctx.strokeStyle = kind === "TURNING_POINT" ? "#f59e0b" : "#22c55e";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, y - 20 + slide);
-      ctx.lineTo(width, y - 20 + slide);
-      ctx.moveTo(0, y + 20 + slide);
-      ctx.lineTo(width, y + 20 + slide);
+      ctx.moveTo(0, y - bandHalf + slide);
+      ctx.lineTo(width, y - bandHalf + slide);
+      ctx.moveTo(0, y + bandHalf + slide);
+      ctx.lineTo(width, y + bandHalf + slide);
       ctx.stroke();
     }
 
     ctx.fillStyle =
       kind === "TURNING_POINT" ? "#f59e0b" : kind === "VICTORY" ? "#22c55e" : "#e2e8f0";
-    ctx.font = `bold ${kind === "VICTORY" ? 18 : 13}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.fillText(text, width / 2, y + slide);
+    const scale = clamp01((height - 220) / 520) * 0.6 + 0.7;
+    const size = Math.round((kind === "VICTORY" ? 18 : 13) * scale);
+    ctx.font = `bold ${size}px ui-sans-serif, system-ui, sans-serif`;
+    // Long victory lines have to fit the arena, not run off the side of it.
+    ctx.fillText(text, width / 2, y + slide, width * 0.92);
 
-    // An upset says so, under the result. The engine decided it was one; this
-    // only makes that visible instead of leaving it in a results table.
-    if (kind === "VICTORY" && scene.upset) {
-      ctx.fillStyle = "#f472b6";
-      ctx.font = "bold 11px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText("UPSET", width / 2, y + 26 + slide);
-    }
+    // The upset is announced by the cinematic stamp, not here — two labels
+    // saying the same word at the same moment read as a bug.
     ctx.restore();
   }
 
@@ -528,19 +740,24 @@ export class BattleRenderer {
     const target = scene.combatants.find((c) => c.characterId === event.targetId);
     if (!target) return;
 
+    // The pool is a fixed ring, so a dense exchange cannot grow it — but it can
+    // still fill it with one event's sparks and starve the next. Capping the
+    // burst keeps several simultaneous blows all visible.
+    const room = Math.max(6, Math.floor(this.particles.capacity / 8));
+
     if (event.kind === "ELIMINATION") {
       this.particles.burst({
-        x: target.x, y: target.y, count: 24, color: "#f8fafc",
+        x: target.x, y: target.y, count: Math.min(24, room), color: "#f8fafc",
         speed: 90, spread: Math.PI, size: 2.2, lifeSeconds: 0.8, seed: index + 1,
       });
     } else if (event.kind === "CRIT") {
       this.particles.burst({
-        x: target.x, y: target.y, count: 14, color: "#fb923c",
+        x: target.x, y: target.y, count: Math.min(14, room), color: "#fb923c",
         speed: 80, spread: Math.PI, size: 2, lifeSeconds: 0.5, seed: index + 1,
       });
     } else if (event.kind === "SPECIAL") {
       this.particles.burst({
-        x: target.x, y: target.y, count: 16, color: "#c084fc",
+        x: target.x, y: target.y, count: Math.min(16, room), color: "#c084fc",
         speed: 60, spread: Math.PI, size: 1.8, lifeSeconds: 0.7, seed: index + 1,
       });
     }
