@@ -37,16 +37,34 @@ const ENGINE = readFileSync(join(ROOT, "src", "lib", "server", "engine.ts"), "ut
  *  absent must not read as the thing being present. */
 const M32_SQL = M32.replace(/^\s*--.*$/gm, "");
 
-/** The body as it will actually run, whichever migration wrote it last. */
+/**
+ * The body as it will actually run, whichever migration wrote it last.
+ *
+ * Deliberately not pinned to a file. An earlier version asserted that every
+ * function still came from 0032, which turned "a later migration fixed this"
+ * into a collection-time crash — the helper exists to follow a definition when
+ * it moves, not to forbid it moving. Which file owns what is asserted once,
+ * below, where a move is visible instead of fatal.
+ */
 function fn(name: string): string {
-  const live = liveDefinitionOf(name);
-  expect(live.file, `${name} is no longer defined by 0032`).toBe("0032_s8_round_pairing.sql");
-  return live.sql;
+  return liveDefinitionOf(name).sql;
 }
 
 // ---------------------------------------------------------------------------
 // The migration
 // ---------------------------------------------------------------------------
+
+describe("which migration owns which function", () => {
+  it("records where each live definition currently lives", () => {
+    // A move is a real event worth seeing in a diff — 0033 took the phase
+    // advance from 0032 to close a guard hole — but it must not break the
+    // tests that read it.
+    expect(liveDefinitionOf("dw_pair_round").file).toBe("0032_s8_round_pairing.sql");
+    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0032_s8_round_pairing.sql");
+    expect(liveDefinitionOf("dw_match_tick").file).toBe("0032_s8_round_pairing.sql");
+    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0033_s8_auction_guard.sql");
+  });
+});
 
 describe("0032 records what cannot be recovered later", () => {
   it("adds the ratings that decided the pairing", () => {
@@ -180,8 +198,17 @@ describe("a round cannot be played unpaired", () => {
     // Rewriting a function is where a guard goes missing, and a guard reduced
     // to a dead branch keeps its own error message — so the condition is what
     // gets asserted, not the string.
-    expect(advance, "the auction guard was reduced to a dead branch").toMatch(
-      /if found and v_game\.status = 'ACTIVE' then\s*return dw_err\('AUCTION_INCOMPLETE'/,
+    //
+    // The earlier version of this assertion pinned `if found and ... = 'ACTIVE'`
+    // exactly, which is the shape that shipped the production bug: `found` is
+    // false when no draft row exists, so the one case that needed stopping was
+    // the one case that got through. A test that encodes the implementation
+    // cannot notice the implementation is wrong.
+    expect(advance, "a running auction can be walked out of").toMatch(
+      /v_game\.status = 'ACTIVE' then\s*return dw_err\('AUCTION_INCOMPLETE'/,
+    );
+    expect(advance, "a draft that never opened can be walked past").toMatch(
+      /if not found then\s*return dw_err\('AUCTION_INCOMPLETE'/,
     );
     expect(advance, "the dwell guard was reduced to a dead branch").toMatch(
       /if now\(\) < m\.phase_started_at \+ dw_min_phase_dwell\(\) then\s*return dw_err\('CONCURRENT_PHASE_ADVANCE'/,
