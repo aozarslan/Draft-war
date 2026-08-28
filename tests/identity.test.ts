@@ -68,7 +68,11 @@ describe("every character resolves an identity", () => {
     for (const id of Object.keys(IDENTITY_OVERRIDES)) {
       expect(ids.has(id), `identity override for "${id}" names no character`).toBe(true);
     }
-    expect(Object.keys(IDENTITY_OVERRIDES).length).toBeGreaterThanOrEqual(20);
+    // Shrinking, and deliberately: S4 moved the thirteen headline animals out
+    // of this table and into their own pool entries, where a character and its
+    // look are written on one line. What is left is the tail nobody has
+    // rewritten yet, and the number goes down as that work continues.
+    expect(Object.keys(IDENTITY_OVERRIDES).length).toBeGreaterThan(0);
   });
 
   it("lets a hand-tuned entry beat the rule", () => {
@@ -121,7 +125,7 @@ describe("characters sharing a body plan look different", () => {
     expect(visualArchetypeFor(CHARACTERS_BY_ID["animals-lion"])).toBe(
       visualArchetypeFor(CHARACTERS_BY_ID["animals-tiger"]),
     );
-    const signatures = [lion, tiger, wolf].map(identitySignature);
+    const signatures = [lion, tiger, wolf].map((c) => identitySignature(c));
     expect(new Set(signatures).size).toBe(3);
   });
 

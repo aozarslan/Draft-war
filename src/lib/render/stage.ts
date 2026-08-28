@@ -83,11 +83,15 @@ export function buildStage(input: StageInput): Stage | null {
     .map((c) => ({ combatant: c, character: input.charactersById[c.characterId] }))
     .filter((entry) => Boolean(entry.character));
 
-  const base = roster.map(({ combatant, character }) => ({
-    characterId: combatant.characterId,
-    teamId: combatant.teamId,
-    config: artFor(character).identity!,
-  }));
+  const base = roster.map(({ combatant, character }) => {
+    const art = artFor(character);
+    return {
+      characterId: combatant.characterId,
+      teamId: combatant.teamId,
+      archetype: art.archetype,
+      config: art.identity!,
+    };
+  });
   const separated = disambiguate(base);
 
   const art: CharacterArt[] = roster.map(({ character }) => {

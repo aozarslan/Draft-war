@@ -45,17 +45,25 @@ export interface LocalPlayback {
 /** How often the scrub bar's state updates. Nowhere near the frame rate. */
 const DISPLAY_INTERVAL_MS = 100;
 
-export function useLocalPlayback(durationMs: number): LocalPlayback {
+/**
+ * @param durationMs Length of the recording.
+ * @param startPaused Whether to hold on frame zero until the viewer presses
+ *   play. A shared link opens on the head-to-head, so the reader meets the two
+ *   squads before the fight starts rather than arriving mid-brawl. Only the
+ *   *local* clock is delayed — a live battle's timing is the server's and is
+ *   not affected by anything on this page.
+ */
+export function useLocalPlayback(durationMs: number, startPaused = false): LocalPlayback {
   const elapsedRef = useRef(0);
   const [displayMs, setDisplayMs] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(!startPaused);
 
   // Reset when the recording itself changes.
   useEffect(() => {
     elapsedRef.current = 0;
     setDisplayMs(0);
-    setPlaying(true);
-  }, [durationMs]);
+    setPlaying(!startPaused);
+  }, [durationMs, startPaused]);
 
   // The advancing clock. It stops itself at the end rather than running past
   // it, so the last frame holds instead of the outro looping forever.

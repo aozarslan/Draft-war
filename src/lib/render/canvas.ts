@@ -24,7 +24,7 @@ import {
   IDENTITY_TILE_SLOTS,
   SPRITE_ANCHORS,
 } from "./anchors.generated";
-import type { IdentityConfig } from "./identity";
+import { BUILD_SCALE, type IdentityConfig } from "./identity";
 import { cueIntensity, type Interactions } from "./interactions";
 import {
   ARENA,
@@ -86,12 +86,29 @@ function composedSizeFor(devicePixels: number): number {
   return COMPOSED_SIZES[COMPOSED_SIZES.length - 1];
 }
 
+/**
+ * A character's look as a cache key.
+ *
+ * Cheap on purpose: it runs once per combatant per frame, and the composed
+ * frame it guards costs far more to build than this costs to compare.
+ */
+function identityKeyOf(i: IdentityConfig): string {
+  return `${i.head}${i.back}${i.marking}${i.prop}${i.build}${i.accent}`;
+}
+
 const TILE_SCALE: Record<string, number> = {
   head: 1.1,
   back: 0.72,
   body: 0.9,
   // A mark is stamped several times along the flank, so each one is small.
   mark: 0.5,
+  // A prop has to read as an object rather than as a smudge on the body, so it
+  // is drawn near full tile size — it is the layer doing the most work to say
+  // what this character is.
+  hand: 1.0,
+  // A ball on the ground is smaller than a weapon held up: at hand scale it
+  // was as wide as the player's shoulders.
+  foot: 0.62,
 };
 /** How many frames the performance meter averages over. */
 const SAMPLE_FRAMES = 120;
@@ -431,8 +448,12 @@ export class BattleRenderer {
     ctx.globalAlpha = c.opacity;
 
     // Shadow first: it is what stops a sprite floating.
-    const ringScale = this.assets.identityFor(c.characterId)?.scale ?? 1;
-    const ringX = (SPRITE_SIZE * ringScale) / 2.4;
+    const ringIdentity = this.assets.identityFor(c.characterId);
+    const ringScale = ringIdentity?.scale ?? 1;
+    // A heavy build stands on a wider footprint. Height does not enter here —
+    // a shadow is a plan view.
+    const [ringWide] = BUILD_SCALE[ringIdentity?.build ?? "NORMAL"];
+    const ringX = (SPRITE_SIZE * ringScale * ringWide) / 2.4;
     const ringY = (SPRITE_SIZE * ringScale) / 6;
     const feetY = y + SPRITE_SIZE / 2;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -460,13 +481,22 @@ export class BattleRenderer {
     // Size is part of identity: an elephant and a badger sharing one body plan
     // should not be the same height.
     const bodyScale = identity?.scale ?? 1;
-    const half = (SPRITE_SIZE * bodyScale) / 2;
+    // Proportions. NORMAL is [1, 1], so a character that asks for no build is
+    // drawn through arithmetic that cannot move it.
+    const [buildW, buildH] = BUILD_SCALE[identity?.build ?? "NORMAL"];
+    const half = (SPRITE_SIZE * bodyScale * buildH) / 2;
 
     if (sprite.kind === "SHEET") {
       // Anchored by the ground line, not the centre: a frame is mostly empty
       // air above the animal, so centring it leaves the sprite hovering over
       // its own shadow.
       const drawSize = SPRITE_SIZE * SHEET_SCALE * bodyScale;
+      // The build stretches the *composed* frame, not the body inside it, so
+      // horns, markings and a held prop stretch with the body and cannot come
+      // apart from it. Width is centred; height hangs from the ground line, so
+      // a towering character grows upward instead of sinking through the floor.
+      const boxW = drawSize * buildW;
+      const boxH = drawSize * buildH;
       // Composed once per character and frame — body, markings, back and head
       // together — then blitted. Assembling seven layers per combatant per
       // frame cost twice the budget at ten combatants.
@@ -477,23 +507,26 @@ export class BattleRenderer {
             sprite.frame,
             (cellCtx, size) => this.composeSprite(cellCtx, size, sprite, identity, c.characterId),
             composedSizeFor(drawSize * this.scale * this.dpr),
+            // The body plan is already implied by the character id, so the key
+            // only has to carry what identity itself decides.
+            identityKeyOf(identity),
           )
         : null;
 
       ctx.save();
-      ctx.translate(x, feetY - SHEET_GROUND_RATIO * drawSize);
+      ctx.translate(x, feetY - SHEET_GROUND_RATIO * boxH);
       ctx.scale(c.facing, 1);
       ctx.imageSmoothingEnabled = false;
 
       if (cell) {
-        ctx.drawImage(cell, -drawSize / 2, 0, drawSize, drawSize);
+        ctx.drawImage(cell, -boxW / 2, 0, boxW, boxH);
       } else {
         const { sheet, frame, row, image } = sprite;
         ctx.drawImage(
           image,
           frame * sheet.frameWidth, row * sheet.frameHeight,
           sheet.frameWidth, sheet.frameHeight,
-          -drawSize / 2, 0, drawSize, drawSize,
+          -boxW / 2, 0, boxW, boxH,
         );
       }
       ctx.restore();
@@ -745,6 +778,8 @@ export class BattleRenderer {
         feature,
         meta.slot === "head" ? anchors.head
         : meta.slot === "back" ? anchors.back
+        : meta.slot === "hand" ? anchors.hand
+        : meta.slot === "foot" ? anchors.foot
         : anchors.body,
       );
     };
@@ -754,6 +789,9 @@ export class BattleRenderer {
     if (identity.marking !== "PLAIN") place(identity.marking);
     if (identity.back !== "NONE") place(identity.back);
     if (identity.head !== "PLAIN") place(identity.head);
+    // The prop last, so a sword passes in front of the body that holds it
+    // rather than being swallowed by a mane.
+    if (identity.prop !== "NONE") place(identity.prop);
   }
 
   /**

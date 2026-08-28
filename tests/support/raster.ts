@@ -72,6 +72,11 @@ function decodePng(path: string): Raster {
 }
 
 const sheets = new Map<string, Raster>();
+/** The raw sheet for one body plan, for tests that measure silhouettes. */
+export function sheetRaster(archetype: string): Raster | null {
+  return sheet(archetype);
+}
+
 function sheet(archetype: string): Raster | null {
   if (!sheets.has(archetype)) {
     try {

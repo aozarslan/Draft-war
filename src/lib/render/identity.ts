@@ -29,6 +29,7 @@
  */
 
 import type { ArchetypeInput, VisualArchetypeId } from "./archetypes";
+import { visualFor } from "@/lib/game/characters";
 
 export type HeadFeature =
   | "PLAIN"
@@ -47,6 +48,73 @@ export type BackFeature =
   | "CAPE"       // a trailing sheet
   | "SHELL";     // a hard dome
 
+/**
+ * A held object.
+ *
+ * Props are the cheapest way to separate two characters who share a body: at
+ * arena scale a sword and a ball read from further away than any facial
+ * feature, because they break the outline rather than decorate it. They are
+ * drawn from the same reusable tile sheet as every other identity layer — one
+ * tile per prop for the whole catalogue, never one per character.
+ *
+ * Visual only. A hammer does not hit harder than a staff.
+ */
+export type PropFeature =
+  | "NONE"
+  | "BLADE"
+  | "STAFF"
+  | "BOW"
+  | "SHIELD"
+  | "BALL"
+  /**
+   * A ball carried rather than dribbled along the ground.
+   *
+   * `BALL` hangs off the *foot* anchor, because a football sits on the grass.
+   * A basketball is held, so it needs the hand — and a tile declares one slot,
+   * not two. Rather than bend `BALL` to mean both and put a basketball in the
+   * mud, the sheet gets one more row. Same tile system, same anchor the other
+   * seven carried props use.
+   */
+  | "BALL_HELD"
+  | "HAMMER"
+  | "SPEAR"
+  | "ORB";
+
+/**
+ * Body proportions.
+ *
+ * Not five sprite sheets: a non-uniform scale applied when the composed frame
+ * is blitted, so the body, its markings, its horns and its prop stretch
+ * together and cannot come apart. Feet stay on the ground line and the body
+ * stays centred over its own shadow.
+ *
+ * Visual only. A towering character is not tougher.
+ */
+export type BuildFeature =
+  | "NORMAL"
+  | "SLIGHT"
+  | "HEAVY"
+  | "TOWERING"
+  | "SQUAT";
+
+/**
+ * How each build stretches the drawn box, as (width, height) multipliers.
+ *
+ * Deliberately modest. These multiply a sprite that is already about thirty
+ * screen pixels tall, and past roughly a quarter either way a pixel body stops
+ * reading as the same creature and starts reading as a drawing mistake. The
+ * pairs are chosen so silhouette *area* differs as much as the outline does —
+ * SQUAT and TOWERING are near-inverses, which is what makes them tell apart at
+ * a glance rather than on inspection.
+ */
+export const BUILD_SCALE: Record<BuildFeature, readonly [number, number]> = {
+  NORMAL: [1, 1],
+  SLIGHT: [0.86, 1.02],
+  HEAVY: [1.22, 0.98],
+  TOWERING: [1.04, 1.24],
+  SQUAT: [1.2, 0.84],
+};
+
 export type Marking =
   | "PLAIN"
   | "STRIPES"
@@ -60,6 +128,22 @@ export interface IdentityConfig {
   head: HeadFeature;
   back: BackFeature;
   marking: Marking;
+  /**
+   * A held object, or none.
+   *
+   * Defaults to NONE for every character in the catalogue: props are authored,
+   * never derived. A rule that handed swords out by tag would put one in the
+   * paw of every predator in the Animals pool.
+   */
+  prop: PropFeature;
+  /**
+   * Proportions.
+   *
+   * Defaults to NORMAL, which is exactly the geometry the renderer used before
+   * builds existed — so a character that does not ask for a build is drawn the
+   * way it always was, pixel for pixel.
+   */
+  build: BuildFeature;
   /**
    * A second colour for features and markings.
    *
@@ -112,36 +196,23 @@ function pick<T>(id: string, salt: number, options: readonly T[]): T {
  */
 export const IDENTITY_OVERRIDES: Record<string, Partial<IdentityConfig>> = {
   // Animals — the category where a wrong silhouette is most obvious.
-  "animals-lion": { head: "EARS", back: "MANE", marking: "PLAIN", scale: 1.02 },
-  "animals-tiger": { head: "EARS", back: "NONE", marking: "STRIPES", scale: 1.02 },
   "animals-leopard": { head: "EARS", back: "NONE", marking: "SPOTS", scale: 0.94 },
   "animals-jaguar": { head: "EARS", back: "NONE", marking: "SPOTS", scale: 0.98 },
-  "animals-cheetah": { head: "EARS", back: "NONE", marking: "SPOTS", scale: 0.9 },
   "animals-spotted-hyena": { head: "EARS", back: "SPINES", marking: "SPOTS", scale: 0.92 },
-  "animals-wolf": { head: "EARS", back: "NONE", marking: "PATCH", scale: 0.94 },
-  "animals-grizzly-bear": { head: "EARS", back: "MANE", marking: "PLAIN", scale: 1.12 },
   "animals-polar-bear": { head: "EARS", back: "NONE", marking: "PLAIN", scale: 1.14 },
-  "animals-african-bush-elephant": { head: "TUSKS", back: "NONE", marking: "PLAIN", scale: 1.25 },
-  "animals-white-rhinoceros": { head: "HORNS", back: "NONE", marking: "PLAIN", scale: 1.18 },
   "animals-hippopotamus": { head: "TUSKS", back: "NONE", marking: "PLAIN", scale: 1.16 },
   "animals-african-buffalo": { head: "HORNS", back: "NONE", marking: "PLAIN", scale: 1.1 },
   "animals-american-bison": { head: "HORNS", back: "MANE", marking: "PLAIN", scale: 1.12 },
   "animals-muskox": { head: "HORNS", back: "MANE", marking: "PLAIN", scale: 1.04 },
   "animals-moose": { head: "ANTLERS", back: "NONE", marking: "PLAIN", scale: 1.12 },
   "animals-wild-boar": { head: "TUSKS", back: "SPINES", marking: "PLAIN", scale: 0.92 },
-  "animals-saltwater-crocodile": { head: "CREST", back: "SPINES", marking: "BANDS", scale: 1.08 },
   "animals-komodo-dragon": { head: "CREST", back: "SPINES", marking: "PATCH", scale: 0.96 },
-  "animals-honey-badger": { head: "EARS", back: "NONE", marking: "PATCH", scale: 0.8 },
   "animals-wolverine": { head: "EARS", back: "NONE", marking: "PATCH", scale: 0.82 },
   "animals-green-anaconda": { head: "PLAIN", back: "NONE", marking: "BANDS", scale: 1.1 },
-  "animals-black-mamba": { head: "PLAIN", back: "NONE", marking: "PLAIN", scale: 0.9 },
-  "animals-golden-eagle": { head: "CREST", back: "NONE", marking: "PATCH", scale: 0.94 },
   "animals-common-ostrich": { head: "CREST", back: "NONE", marking: "PATCH", scale: 1.08 },
   "animals-southern-cassowary": { head: "CREST", back: "NONE", marking: "PATCH", scale: 1.0 },
   "animals-orca": { head: "PLAIN", back: "FIN", marking: "PATCH", scale: 1.2 },
-  "animals-great-white-shark": { head: "PLAIN", back: "FIN", marking: "PLAIN", scale: 1.14 },
   "animals-southern-elephant-seal": { head: "PLAIN", back: "NONE", marking: "PLAIN", scale: 1.2 },
-  "animals-western-gorilla": { head: "PLAIN", back: "MANE", marking: "PLAIN", scale: 1.1 },
 };
 
 /**
@@ -266,10 +337,52 @@ export function identityFor(
     head,
     back,
     marking,
+    // Both authored rather than derived, so nothing in the legacy catalogue
+    // silently grows a weapon or changes shape.
+    prop: "NONE",
+    build: "NORMAL",
     accent: accentFrom(character.palette, character.id),
   };
 
-  return { ...config, ...IDENTITY_OVERRIDES[character.id] };
+  // Precedence, weakest to strongest: derived rules, then the legacy override
+  // table, then whatever the pool entry authored. The pool wins because it is
+  // the new home for hand-authored looks; the override table stays until the
+  // characters it covers are rewritten, and until then the two cannot fight
+  // because only one of them will ever hold a given character.
+  return {
+    ...config,
+    ...IDENTITY_OVERRIDES[character.id],
+    ...visualFor(character.id)?.i,
+  };
+}
+
+/**
+ * Everything about a character's look, as one comparable string.
+ *
+ * Exists so "are these two distinguishable?" is a question with an exact
+ * answer rather than an opinion. It deliberately omits `accent`: two
+ * characters that differ only in the shade of their markings are *not*
+ * distinguishable at arena scale, and a signature that claimed otherwise
+ * would let a catalogue full of near-identical creatures pass a test.
+ *
+ * Scale is rounded to the same two decimals the identity layer authors it at.
+ */
+export function visualSignature(
+  // A plain string, matching `shapeKey` and `identitySignature`. The art the
+  // renderer carries types its body plan as a string, and a signature that
+  // could not accept it would have to be cast at every call site.
+  archetype: string,
+  identity: IdentityConfig,
+): string {
+  return [
+    archetype,
+    identity.head,
+    identity.back,
+    identity.marking,
+    identity.build,
+    identity.prop,
+    identity.scale.toFixed(2),
+  ].join("|");
 }
 
 /**
@@ -286,7 +399,13 @@ export function identityFor(
  * the collision allows.
  */
 export function disambiguate(
-  roster: { characterId: string; teamId?: string; config: IdentityConfig }[],
+  roster: {
+    characterId: string;
+    teamId?: string;
+    /** The body plan. Two plans are never the same look, whatever else matches. */
+    archetype?: string;
+    config: IdentityConfig;
+  }[],
 ): Map<string, IdentityConfig> {
   const out = new Map<string, IdentityConfig>();
   const takenOverall = new Set<string>();
@@ -305,15 +424,16 @@ export function disambiguate(
     // not, because they already share a team colour on the ground ring — so
     // within a squad the *shape* has to differ, not just the accent.
     const clashes = (c: IdentityConfig) =>
-      takenOverall.has(identitySignature(c)) || teammates.has(shapeKey(c));
+      takenOverall.has(identitySignature(c, entry.archetype)) ||
+      teammates.has(shapeKey(c, entry.archetype));
 
     while (clashes(config) && attempt < DISAMBIGUATION_STEPS.length) {
       config = DISAMBIGUATION_STEPS[attempt](config, entry.characterId);
       attempt++;
     }
 
-    takenOverall.add(identitySignature(config));
-    teammates.add(shapeKey(config));
+    takenOverall.add(identitySignature(config, entry.archetype));
+    teammates.add(shapeKey(config, entry.archetype));
     out.set(entry.characterId, config);
   }
 
@@ -327,8 +447,25 @@ export function disambiguate(
  * hue. Two teammates are required to differ on this, not merely on their
  * accent.
  */
-export function shapeKey(config: IdentityConfig): string {
-  return [config.scale, config.head, config.back, config.marking].join("|");
+export function shapeKey(config: IdentityConfig, archetype?: string): string {
+  // Body plan first, because it outranks everything else on this list: a
+  // large quadruped and a medium one are not the same creature drawn at two
+  // sizes, and treating them as a collision made the disambiguator "fix" a
+  // pair that was never confusable — silently overwriting a hand-authored
+  // scale to do it.
+  //
+  // `build` and `prop` are here for the same reason. They arrived in S2 and
+  // were not added to this key, so two characters differing only by build read
+  // as identical and one of them got nudged for nothing.
+  return [
+    archetype ?? "",
+    config.scale,
+    config.head,
+    config.back,
+    config.marking,
+    config.build,
+    config.prop,
+  ].join("|");
 }
 
 /**
@@ -366,6 +503,15 @@ const DISAMBIGUATION_STEPS: ((c: IdentityConfig, id: string) => IdentityConfig)[
  * Two characters with the same signature are drawn identically — which is what
  * the readability tests assert must not happen inside one battle.
  */
-export function identitySignature(config: IdentityConfig): string {
-  return [config.scale, config.head, config.back, config.marking, config.accent].join("|");
+export function identitySignature(config: IdentityConfig, archetype?: string): string {
+  return [
+    archetype ?? "",
+    config.scale,
+    config.head,
+    config.back,
+    config.marking,
+    config.build,
+    config.prop,
+    config.accent,
+  ].join("|");
 }

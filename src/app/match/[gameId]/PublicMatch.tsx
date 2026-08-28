@@ -8,6 +8,11 @@ import { playerColor } from "@/lib/game/colors";
 import { draftEfficiency, efficiencyLabel } from "@/lib/game/archetypes";
 import { getFormation } from "@/lib/game/formations";
 import { useLocalPlayback } from "@/lib/client/useLocalPlayback";
+import { revealOf } from "@/lib/render/reveal";
+import { highlightsOf } from "@/lib/render/highlights";
+import { narrativeOf } from "@/lib/render/narrative";
+import { BattleReveal } from "@/components/BattleReveal";
+import { BattleNarration } from "@/components/BattleNarration";
 import { buildStage } from "@/lib/render/stage";
 import { summaryOf } from "@/lib/render/summary";
 import { BattleCanvas } from "@/components/BattleCanvas";
@@ -67,6 +72,9 @@ const pretty = (id: string) => id.replace(/^[a-z-]+?-/, "").replace(/-/g, " ");
  * roster or a credit balance out of a match still being played.
  */
 export function PublicMatch({ gameId }: { gameId: string }) {
+  // Whether the viewer has started the battle. Held here rather than inside
+  // the replay because it gates the result section too.
+  const [started, setStarted] = useState(false);
   const [data, setData] = useState<Payload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing">("loading");
 
@@ -100,10 +108,23 @@ export function PublicMatch({ gameId }: { gameId: string }) {
 
   return (
     <div className="space-y-4">
-      <PublicReplay data={data} />
-      <PublicSummary data={data} />
+      <PublicReplay data={data} started={started} onStart={() => setStarted(true)} />
 
-      <Panel accent={playerColor(winner?.colorIndex ?? 0).hex} className="overflow-hidden">
+      {/*
+        The result waits until the viewer has started the battle.
+
+        Not decoration: `revealOf` goes to some trouble to seat the squads by
+        draft order and to carry no outcome field at all, and every bit of that
+        is wasted if "Ege beat Mikail" sits one scroll below it. A spoiler is a
+        spoiler whether it comes from the reveal or from the page it is on.
+        One tap opens everything, so nothing is hidden from someone who only
+        wants the score.
+      */}
+      {started ? (
+        <>
+          <PublicSummary data={data} />
+
+          <Panel accent={playerColor(winner?.colorIndex ?? 0).hex} className="overflow-hidden">
         <div className="px-5 py-6 text-center">
           <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">
             {data.categoryIds.map((id) => getCategory(id).name).join(" + ")} · room{" "}
@@ -212,6 +233,8 @@ export function PublicMatch({ gameId }: { gameId: string }) {
             ) : null}
           </ul>
         </Panel>
+          ) : null}
+        </>
       ) : null}
 
       <Link href="/#play" className="btn btn-primary w-full">
@@ -247,7 +270,15 @@ function projectable(data: Payload): ProjectableResult {
   };
 }
 
-function PublicReplay({ data }: { data: Payload }) {
+function PublicReplay({
+  data,
+  started,
+  onStart,
+}: {
+  data: Payload;
+  started: boolean;
+  onStart: () => void;
+}) {
   const charactersById = useMemo(
     () => Object.fromEntries(CHARACTERS.map((c) => [c.id, c])),
     [],
@@ -269,7 +300,20 @@ function PublicReplay({ data }: { data: Payload }) {
     [data, charactersById],
   );
 
-  const playback = useLocalPlayback(stage?.durationMs ?? 0);
+  // Opens paused on the head-to-head. Only this page's own clock waits; a
+  // live battle's timing belongs to the server and nothing here touches it.
+  const playback = useLocalPlayback(stage?.durationMs ?? 0, true);
+  const reveal = useMemo(() => (stage ? revealOf(stage.replay) : null), [stage]);
+  const cues = useMemo(
+    () => (stage ? narrativeOf(stage.replay, highlightsOf(stage.replay)) : []),
+    [stage],
+  );
+  const colorOf = useMemo(() => {
+    const colors = new Map(
+      data.teams.map((t) => [t.playerId, playerColor(t.colorIndex).hex]),
+    );
+    return (playerId: string) => colors.get(playerId) ?? "#94a3b8";
+  }, [data.teams]);
 
   // A payload from before the endpoint forwarded `durationMs` has nothing to
   // play back against. The rest of the page still works; only the arena is
@@ -282,6 +326,31 @@ function PublicReplay({ data }: { data: Payload }) {
 
   const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
+  // The reveal stands in front of the arena only until the viewer starts the
+  // fight, and never comes back — once you have seen the battle, a card
+  // introducing the fighters is in the way.
+  if (reveal && !started) {
+    return (
+      <div className="space-y-3">
+        <BattleReveal
+          reveal={reveal}
+          charactersById={charactersById}
+          colorOf={colorOf}
+          countdownMs={null}
+        />
+        <button
+          className="btn btn-primary w-full"
+          onClick={() => {
+            onStart();
+            playback.play();
+          }}
+        >
+          ▶ Watch the battle
+        </button>
+      </div>
+    );
+  }
+
   return (
     <Panel className="overflow-hidden">
       <BattleCanvas
@@ -292,6 +361,9 @@ function PublicReplay({ data }: { data: Payload }) {
         teamColors={stage.teamColors}
         elapsedMs={playback.elapsedMs}
       />
+      <div className="px-3 pt-3">
+        <BattleNarration cues={cues} elapsedMs={playback.elapsedMs} />
+      </div>
       <div className="flex items-center gap-3 p-3">
         <button
           className="btn btn-ghost shrink-0"

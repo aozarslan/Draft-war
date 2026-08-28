@@ -51,12 +51,28 @@ describe("category registry", () => {
     expect(getCategory("nope").id).toBe("action-movies");
   });
 
-  it("ships a playable pool for every category", () => {
+  it("records how many players each category can actually seat", () => {
+    // The draft consumes `players x 5` characters exactly, so a pool's size
+    // *is* its table size. Stating that as a number per category rather than
+    // as one threshold keeps a half-finished pool visible instead of letting
+    // it fail at `beginAuction` with POOL_TOO_SMALL — which is the worst
+    // possible moment, since the room has already picked and locked.
     const counts = categoryCounts();
-    for (const c of CATEGORIES) {
-      // A four-player game needs twenty draftable characters.
-      expect(counts[c.id] ?? 0, c.id).toBeGreaterThanOrEqual(20);
-    }
+    const seats = Object.fromEntries(
+      CATEGORIES.map((c) => [c.id, Math.min(5, Math.floor((counts[c.id] ?? 0) / 5))]),
+    );
+
+    expect(seats).toEqual({
+      marvel: 5, dc: 5, hollywood: 5, "action-movies": 5,
+      animals: 5, fantasy: 4, "video-games": 4, anime: 4,
+      // Football seats four. Five more characters would seat five; the gap is
+      // written down rather than asserted away, because it is a content
+      // decision and not a bug.
+      football: 4,
+      // Twenty-five: a full five-player table on its own.
+      basketball: 5,
+    });
+
     expect(CHARACTERS.length).toBeGreaterThan(250);
   });
 });

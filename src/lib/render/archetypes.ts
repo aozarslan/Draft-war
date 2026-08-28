@@ -15,15 +15,17 @@
  * and a short override list fixes the ones a rule cannot get right. That way a
  * new character in a known category is drawn correctly the day it is added.
  *
- * Only `quadruped_medium` has artwork today. Everything else resolves to an
- * archetype with no sheet, which the asset store treats exactly as it treats a
- * missing image: portrait first, palette disc last. Nothing breaks; things
- * simply look less finished until their sheet lands.
+ * Every body plan has its own sheet. Until S3 the two large plans had none and
+ * borrowed their family's medium sheet — which also meant they had no *anchor*
+ * grid, so the thirty-three characters resolving to them silently lost their
+ * whole identity layer: no horns, no mane, no markings, no prop. A borrowed
+ * sheet looked like a cosmetic compromise and was actually a blank character.
  */
 
 import type { AnimationHint } from "@/lib/game/replay";
 import type { CharacterArt, SpriteClip, SpriteSheet } from "./assets";
 import { identityFor } from "./identity";
+import { visualFor } from "@/lib/game/characters";
 
 export type VisualArchetypeId =
   | "humanoid_medium"
@@ -38,8 +40,10 @@ export type VisualArchetypeId =
 /** The body plans that have their own artwork, in the order they were drawn. */
 export const DRAWN_ARCHETYPES: VisualArchetypeId[] = [
   "humanoid_medium",
+  "humanoid_large",
   "quadruped_small",
   "quadruped_medium",
+  "quadruped_large",
   "serpentine",
   "winged",
   "aquatic",
@@ -162,10 +166,10 @@ export function identityTilesApproved(): boolean {
 
 export const VISUAL_ARCHETYPES: Record<VisualArchetypeId, VisualArchetype> = {
   humanoid_medium: drawn("humanoid_medium", "Humanoid"),
-  humanoid_large: undrawn("humanoid_large", "Large humanoid"),
+  humanoid_large: drawn("humanoid_large", "Large humanoid"),
   quadruped_small: drawn("quadruped_small", "Small quadruped"),
   quadruped_medium: drawn("quadruped_medium", "Quadruped"),
-  quadruped_large: undrawn("quadruped_large", "Large quadruped"),
+  quadruped_large: drawn("quadruped_large", "Large quadruped"),
   serpentine: drawn("serpentine", "Serpentine"),
   winged: drawn("winged", "Winged"),
   aquatic: drawn("aquatic", "Aquatic"),
@@ -182,16 +186,11 @@ export const VISUAL_ARCHETYPES: Record<VisualArchetypeId, VisualArchetype> = {
  */
 export const ARCHETYPE_OVERRIDES: Record<string, VisualArchetypeId> = {
   "animals-green-anaconda": "serpentine",
-  "animals-black-mamba": "serpentine",
-  "animals-golden-eagle": "winged",
   "animals-common-ostrich": "humanoid_medium",
   "animals-southern-cassowary": "humanoid_medium",
   "animals-orca": "aquatic",
-  "animals-great-white-shark": "aquatic",
   "animals-southern-elephant-seal": "aquatic",
-  "animals-saltwater-crocodile": "quadruped_large",
   "animals-komodo-dragon": "quadruped_medium",
-  "animals-western-gorilla": "humanoid_large",
 };
 
 /** The minimum a character has to expose to be drawn. */
@@ -238,6 +237,12 @@ export function artFor(
  * different on two devices.
  */
 export function visualArchetypeFor(character: ArchetypeInput): VisualArchetypeId {
+  // Authored next to the character wins, because that is where a body plan is
+  // easiest to keep honest — you can see it on the same line as the tags that
+  // would otherwise have decided it.
+  const authored = visualFor(character.id)?.va;
+  if (authored) return authored;
+
   const override = ARCHETYPE_OVERRIDES[character.id];
   if (override) return override;
 
@@ -280,6 +285,11 @@ export function sheetFor(archetype: VisualArchetypeId): SpriteSheet | null {
  * Only within a family. An orca is not a quadruped drawn slightly wrong, it is
  * a different silhouette, and a shark on four legs reads as a bug — so aquatic,
  * serpentine and winged have no fallback and wait for their own artwork.
+ *
+ * Every body plan has its own sheet now, so nothing reaches this in practice.
+ * It is kept because `sheetFor` also refuses *unapproved* artwork: pull the
+ * approval on a large sheet and its family still draws rather than dropping
+ * thirty-three characters to a palette disc.
  */
 const FAMILY_FALLBACK: Partial<Record<VisualArchetypeId, VisualArchetypeId>> = {
   quadruped_large: "quadruped_medium",

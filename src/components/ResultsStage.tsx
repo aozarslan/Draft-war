@@ -9,7 +9,8 @@ import { draftEfficiency, efficiencyLabel } from "@/lib/game/archetypes";
 import { getFormation as formationOf } from "@/lib/game/formations";
 import { play } from "@/lib/client/sound";
 import { buildStage } from "@/lib/render/stage";
-import { summaryOf } from "@/lib/render/summary";
+import { shareTextOf, summaryOf } from "@/lib/render/summary";
+import { shareOrCopy } from "@/lib/client/share";
 import { BattleSummaryCard } from "./BattleSummaryCard";
 import { CharacterArt } from "./CharacterArt";
 import { Panel, SectionTitle } from "./ui";
@@ -114,6 +115,41 @@ export function ResultsStage({
     c ? (charactersById[c.characterId]?.name ?? c.characterId) : "—";
   const ownerOf = (c: CombatantResult | null) =>
     c ? (snapshot.players.find((p) => p.id === c.playerId)?.nickname ?? "—") : "—";
+
+  /**
+   * Shares the result through the native sheet, falling back to the clipboard.
+   *
+   * The text comes from `shareTextOf`, which reads the same `summaryOf`
+   * projection this screen already renders — so what gets shared and what the
+   * player is looking at cannot drift apart. Nothing is computed here.
+   */
+  async function shareResult() {
+    if (!battleSummary || !matchUrl) return;
+
+    const text = shareTextOf(battleSummary, {
+      nameOf: (id) => charactersById[id]?.name ?? id,
+      mapName: maps.find((m) => m.id === result?.mapId)?.name,
+      eventName: events.find((e) => e.id === result?.eventId)?.name,
+      categoryNames: (result?.categoryIds ?? []).map((id) => getCategory(id).name),
+      url: matchUrl,
+    });
+
+    const outcome = await shareOrCopy(
+      typeof navigator === "undefined" ? undefined : navigator,
+      { title: "DRAFT WAR", text, url: matchUrl },
+    );
+
+    if (outcome === "shared") {
+      play("click");
+    } else if (outcome === "copied") {
+      setCopied("match");
+      play("click");
+      setTimeout(() => setCopied(null), 1800);
+    } else if (outcome === "failed") {
+      store.pushToast("error", "Share failed.");
+    }
+    // "cancelled" is the person changing their mind. Say nothing.
+  }
 
   async function copy(text: string, label: string) {
     try {
@@ -500,7 +536,7 @@ export function ResultsStage({
           {copied === "link" ? "✅ Copied" : "🔗 Share room"}
         </button>
         {matchUrl ? (
-          <button className="btn sm:col-span-2" onClick={() => copy(matchUrl, "match")}>
+          <button className="btn sm:col-span-2" onClick={shareResult}>
             {copied === "match" ? "✅ Copied" : "🏆 Share this result"}
           </button>
         ) : null}

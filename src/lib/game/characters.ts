@@ -15,6 +15,8 @@ import { ANIMALS } from "./pools/animals";
 import { FANTASY } from "./pools/fantasy";
 import { VIDEO_GAMES } from "./pools/video-games";
 import { ANIME } from "./pools/anime";
+import { FOOTBALL } from "./pools/football";
+import { BASKETBALL } from "./pools/basketball";
 
 /**
  * ---------------------------------------------------------------------------
@@ -150,6 +152,8 @@ export const POOLS: Record<string, PoolEntry[]> = {
   fantasy: FANTASY,
   "video-games": VIDEO_GAMES,
   anime: ANIME,
+  football: FOOTBALL,
+  basketball: BASKETBALL,
 };
 
 export const CHARACTERS: Character[] = CATEGORIES.flatMap((c) =>
@@ -169,4 +173,72 @@ export function categoryCounts(): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Presentation metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * How a character looks and is spoken about. Never how it fights.
+ *
+ * Deliberately a *separate* table rather than fields on `Character`, and the
+ * reason is architectural rather than tidy. At runtime the auction reads its
+ * characters from Postgres, not from these files — the database is the
+ * gameplay authority. If nicknames and silhouettes were part of `Character`
+ * they would need columns, a migration and a seed, and from that moment a
+ * presentation change could fail a draft.
+ *
+ * Keeping them here makes the guarantee structural instead of promised:
+ * visual metadata is compiled into the client bundle, never written to the
+ * database, never carried in `battle_result`, and therefore *cannot* be read
+ * by `simulateBattle` even by accident. Artwork cannot move a number because
+ * artwork never reaches the machine that computes numbers.
+ */
+export interface CharacterVisual {
+  /** The short name players say out loud. Absent until authored. */
+  nick?: string;
+  /** Hand-authored look, merged over whatever the identity rules derive. */
+  i?: PoolEntry["i"];
+  /** Body plan, when the rules would pick the wrong one. */
+  va?: PoolEntry["va"];
+}
+
+/**
+ * Every authored look in the catalogue, keyed by character id.
+ *
+ * Built from the same pool entries `CHARACTERS` is built from, so a character
+ * and its appearance are written on one line and cannot drift apart. Entries
+ * with nothing authored are omitted rather than stored empty, so the table
+ * stays small and `visualFor` returning nothing means "the rules decide".
+ */
+export const CHARACTER_VISUALS: Record<string, CharacterVisual> = (() => {
+  const out: Record<string, CharacterVisual> = {};
+  for (const category of CATEGORIES) {
+    for (const entry of POOLS[category.id] ?? []) {
+      if (!entry.nick && !entry.i && !entry.va) continue;
+      const visual: CharacterVisual = {};
+      if (entry.nick) visual.nick = entry.nick;
+      if (entry.i) visual.i = entry.i;
+      if (entry.va) visual.va = entry.va;
+      out[`${category.id}-${slugify(entry.n)}`] = visual;
+    }
+  }
+  return out;
+})();
+
+/** The authored look for a character, or nothing when the rules decide. */
+export function visualFor(characterId: string): CharacterVisual | undefined {
+  return CHARACTER_VISUALS[characterId];
+}
+
+/**
+ * The name to shout during an auction, falling back to the catalogue name.
+ *
+ * A nickname is a social object — "don't let him get THE KING" — so the
+ * fallback matters: a character without one is still referable, just less
+ * quotable.
+ */
+export function nicknameFor(characterId: string, fallback: string): string {
+  return CHARACTER_VISUALS[characterId]?.nick ?? fallback;
 }

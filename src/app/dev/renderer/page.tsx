@@ -26,7 +26,17 @@ import { toReplay, type Replay } from "@/lib/game/replay";
 import { PLAYER_COLORS } from "@/lib/game/colors";
 import { BattleRenderer } from "@/lib/render/canvas";
 import { VISUAL_ARCHETYPES, artFor, visualArchetypeFor } from "@/lib/render/archetypes";
-import { disambiguate } from "@/lib/render/identity";
+import {
+  disambiguate,
+  type BuildFeature,
+  type PropFeature,
+} from "@/lib/render/identity";
+
+/** Every prop and build, for the harness pickers. */
+const PROPS: PropFeature[] = [
+  "NONE", "BLADE", "STAFF", "BOW", "SHIELD", "BALL", "HAMMER", "SPEAR", "ORB",
+];
+const BUILDS: BuildFeature[] = ["NORMAL", "SLIGHT", "HEAVY", "TOWERING", "SQUAT"];
 import { ArchetypePreview } from "@/components/dev/ArchetypePreview";
 import { interactionsFor } from "@/lib/render/interactions";
 import { sceneAt } from "@/lib/render/scene";
@@ -237,12 +247,21 @@ export default function RendererHarness() {
     };
   }, []);
 
+  const [prop, setProp] = useState<PropFeature>("NONE");
+  const [build, setBuild] = useState<BuildFeature>("NORMAL");
+
   const art = useMemo<CharacterArt[]>(() => {
     const all = CHARACTERS.map((c) => {
       const resolved = artFor(c, portraits ? (thumbnails[c.id] ?? c.thumbnailUrl) : null);
       // The sheet always wins over a portrait, so this toggle is the only way
       // to compare an animated archetype against the artwork it replaces.
-      return sheets ? resolved : { ...resolved, sheet: undefined };
+      const withSheet = sheets ? resolved : { ...resolved, sheet: undefined };
+      // Equipment is authored per character in the pools, and nothing in the
+      // catalogue is authored yet — so without a way to force it here there is
+      // no way to *look* at a prop or a build. Applied to the art the harness
+      // hands the renderer, never to the catalogue, so this cannot leak.
+      if ((prop === "NONE" && build === "NORMAL") || !withSheet.identity) return withSheet;
+      return { ...withSheet, identity: { ...withSheet.identity, prop, build } };
     });
 
     // Two characters in *this* battle that resolved to the same look get
@@ -251,15 +270,15 @@ export default function RendererHarness() {
     if (!replay) return all;
     const inMatch = replay.combatants.map((c) => c.characterId);
     const separated = disambiguate(
-      inMatch.map((id) => ({
-        characterId: id,
-        config: all.find((a) => a.characterId === id)!.identity!,
-      })),
+      inMatch.map((id) => {
+        const found = all.find((a) => a.characterId === id)!;
+        return { characterId: id, archetype: found.archetype, config: found.identity! };
+      }),
     );
     return all.map((a) =>
       separated.has(a.characterId) ? { ...a, identity: separated.get(a.characterId)! } : a,
     );
-  }, [portraits, thumbnails, sheets, replay]);
+  }, [portraits, thumbnails, sheets, replay, prop, build]);
 
   // One renderer per replay. It reads the clock we own, so scrubbing is just
   // writing to a ref — the renderer has no opinion about time passing.
@@ -461,6 +480,32 @@ export default function RendererHarness() {
           >
             {[0.25, 0.5, 1, 2, 4].map((s) => (
               <option key={s} value={s}>{s}×</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1">
+          <span className="text-xs text-slate-400">Prop (herkese)</span>
+          <select
+            value={prop}
+            onChange={(e) => setProp(e.target.value as PropFeature)}
+            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-100"
+          >
+            {PROPS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1">
+          <span className="text-xs text-slate-400">Build (herkese)</span>
+          <select
+            value={build}
+            onChange={(e) => setBuild(e.target.value as BuildFeature)}
+            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-slate-100"
+          >
+            {BUILDS.map((b) => (
+              <option key={b} value={b}>{b}</option>
             ))}
           </select>
         </label>

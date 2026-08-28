@@ -91,9 +91,12 @@ describe("hand corrections", () => {
 });
 
 describe("falling back", () => {
-  it("draws a large quadruped with the medium sheet rather than a disc", () => {
-    expect(sheetFor("quadruped_large")).toBe(sheetFor("quadruped_medium"));
-    expect(sheetFor("quadruped_medium")).not.toBeNull();
+  it("draws a large quadruped with its own sheet, not its family's", () => {
+    // Until S3 this borrowed `quadruped_medium`. That was never only cosmetic:
+    // a borrowed sheet has no anchor grid of its own, so every large animal
+    // lost its horns, mane, markings and prop as well as its bulk.
+    expect(sheetFor("quadruped_large")).not.toBe(sheetFor("quadruped_medium"));
+    expect(sheetFor("quadruped_large")?.src).toBe("/sprites/quadruped_large.png");
   });
 
   it("gives a shark, a snake and a bird their own bodies rather than borrowing", () => {
@@ -105,8 +108,9 @@ describe("falling back", () => {
     }
   });
 
-  it("draws a large humanoid with the medium sheet", () => {
-    expect(sheetFor("humanoid_large")).toBe(sheetFor("humanoid_medium"));
+  it("draws a large humanoid with its own sheet", () => {
+    expect(sheetFor("humanoid_large")).not.toBe(sheetFor("humanoid_medium"));
+    expect(sheetFor("humanoid_large")?.src).toBe("/sprites/humanoid_large.png");
   });
 
   it("gives every archetype a sheet from its own family or none", () => {
@@ -128,17 +132,33 @@ describe("falling back", () => {
   });
 
   it("will not load unapproved artwork", () => {
-    const archetype = VISUAL_ARCHETYPES.quadruped_medium;
-    const provenance = archetype.provenance!;
+    const medium = VISUAL_ARCHETYPES.quadruped_medium;
+    const large = VISUAL_ARCHETYPES.quadruped_large;
+    const mediumProv = medium.provenance!;
+    const largeProv = large.provenance!;
+
     try {
-      archetype.provenance = { ...provenance, approved: false };
+      // Both unapproved: nothing to draw and nothing to borrow.
+      medium.provenance = { ...mediumProv, approved: false };
+      large.provenance = { ...largeProv, approved: false };
       expect(sheetFor("quadruped_medium")).toBeNull();
-      // And the family fallback must not smuggle it in either.
       expect(sheetFor("quadruped_large")).toBeNull();
     } finally {
-      archetype.provenance = provenance;
+      medium.provenance = mediumProv;
+      large.provenance = largeProv;
     }
-    expect(sheetFor("quadruped_medium")).not.toBeNull();
+
+    try {
+      // Only the large one unapproved: the family net catches it. Every plan
+      // has its own artwork now, so this is the only path that still reaches
+      // the fallback — and it is why the fallback was kept.
+      large.provenance = { ...largeProv, approved: false };
+      expect(sheetFor("quadruped_large")).toBe(sheetFor("quadruped_medium"));
+    } finally {
+      large.provenance = largeProv;
+    }
+
+    expect(sheetFor("quadruped_large")?.src).toBe("/sprites/quadruped_large.png");
   });
 });
 

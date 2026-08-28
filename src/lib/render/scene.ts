@@ -27,6 +27,13 @@
  */
 
 import type { Replay, ReplayEvent, Lane, AnimationHint } from "@/lib/game/replay";
+import { highlightsOf } from "./highlights";
+import {
+  activeCue,
+  cueProgress,
+  narrativeOf,
+  type NarrativeCue,
+} from "./narrative";
 import { clamp01, easeOutBack, easeOutCubic, easeOutQuad, pingPong, shakeOffset } from "./easing";
 
 /** How long each animation holds before falling back to idle. */
@@ -208,6 +215,15 @@ export interface Scene {
   particles: SceneParticle[];
   camera: SceneCamera;
   banner: SceneBanner | null;
+  /**
+   * The same cue as `banner`, unstyled.
+   *
+   * The canvas is `aria-hidden` — a screen reader gets nothing from a bitmap —
+   * so the narrative has to exist as text somewhere too. Exposing the cue
+   * rather than re-deriving it in the component is what keeps the two
+   * representations from drifting apart: they are the same object, drawn twice.
+   */
+  narrative: NarrativeCue | null;
   cinematic: SceneCinematic | null;
   /** The event being emphasised right now, for the draw layer to react to. */
   focusEventIndex: number | null;
@@ -369,7 +385,6 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
   const byId = new Map(combatants.map((c) => [c.characterId, c]));
 
   const effects: SceneEffect[] = [];
-  let banner: SceneBanner | null = null;
   let cinematic: SceneCinematic | null = null;
   let focusEventIndex: number | null = null;
   // Every shake still inside its window, so the strongest one wins rather than
@@ -388,7 +403,6 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
       now,
       byId,
       effects,
-      (b) => (banner = b),
       (c) => (cinematic = c),
       (magnitude) => {
         shakes.push({
@@ -538,6 +552,18 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
   assignNumberSlots(effects);
   const particles = particlesAt(replay, now);
 
+  // The one narrative slot. Among every cue whose window contains this moment,
+  // the highest priority takes the card and the rest are dropped — not queued,
+  // because a cue shown after its moment has passed labels the wrong thing.
+  const cue = activeCue(cuesFor(replay), now);
+  const banner: SceneBanner | null = cue
+    ? {
+        kind: BANNER_OF[cue.kind],
+        text: cue.text,
+        progress: cueProgress(cue, now),
+      }
+    : null;
+
   return {
     elapsedMs: now,
     finished: now >= replay.durationMs,
@@ -547,6 +573,7 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     particles,
     camera,
     banner,
+    narrative: cue,
     cinematic,
     focusEventIndex,
     // Only once the fight is over: a crown over someone who is about to be
@@ -555,6 +582,42 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
     outro,
     upset: replay.upset,
   };
+}
+
+/**
+ * Which visual band a narrative cue is drawn as.
+ *
+ * Several cues share a band: a last stand and a comeback are both moments the
+ * fight pauses on, and the draw layer treats them alike. The distinction that
+ * matters for drawing is centred title card versus top divider.
+ */
+const BANNER_OF: Record<NarrativeCue["kind"], SceneBanner["kind"]> = {
+  PHASE: "PHASE",
+  COMEBACK: "PHASE",
+  LAST_STAND: "TURNING_POINT",
+  FINAL_CLASH: "TURNING_POINT",
+  TURNING_POINT: "TURNING_POINT",
+  VICTORY: "VICTORY",
+  UPSET: "VICTORY",
+};
+
+/**
+ * The cues for a replay, worked out once.
+ *
+ * Memoised against the replay object itself: `narrativeOf` is a pure function
+ * of it, so caching the answer changes nothing observable, and running the
+ * classification sixty times a second would be pure waste. A `WeakMap` means
+ * the cache dies with the replay rather than holding every battle a player
+ * ever watched.
+ */
+const CUE_CACHE = new WeakMap<Replay, NarrativeCue[]>();
+
+function cuesFor(replay: Replay): NarrativeCue[] {
+  const cached = CUE_CACHE.get(replay);
+  if (cached) return cached;
+  const cues = narrativeOf(replay, highlightsOf(replay));
+  CUE_CACHE.set(replay, cues);
+  return cues;
 }
 
 /**
@@ -670,7 +733,6 @@ function applyEvent(
   now: number,
   byId: Map<string, Working>,
   effects: SceneEffect[],
-  setBanner: (b: SceneBanner | null) => void,
   setCinematic: (c: SceneCinematic | null) => void,
   setShake: (magnitude: number) => void,
 ): void {
@@ -792,22 +854,9 @@ function applyEvent(
       break;
     }
 
-    case "PHASE":
-    case "ROUND_START": {
-      if (age < BANNER_MS) {
-        setBanner({ kind: "PHASE", text: event.text, progress: clamp01(age / BANNER_MS) });
-      }
-      break;
-    }
-
     case "TURNING_POINT": {
-      if (age < BANNER_MS) {
-        setBanner({
-          kind: "TURNING_POINT",
-          text: event.text,
-          progress: clamp01(age / BANNER_MS),
-        });
-      }
+      // The words are the narrative layer's job now; what stays here is the
+      // treatment — the vignette, the letterbox and the shake.
       if (age < CINEMATIC_MS) {
         const progress = clamp01(age / CINEMATIC_MS);
         setCinematic({
@@ -825,10 +874,6 @@ function applyEvent(
       break;
     }
 
-    case "END": {
-      setBanner({ kind: "VICTORY", text: event.text, progress: clamp01(age / BANNER_MS) });
-      break;
-    }
   }
 
   void index;

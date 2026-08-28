@@ -134,3 +134,72 @@ function award(
     price: pick.price,
   };
 }
+
+/**
+ * The context a share line needs that the replay does not carry.
+ *
+ * Names, not ids: the battlefield fields are stored as identifiers and the
+ * caller already has the lookup tables, so resolving them here would mean
+ * importing the catalogues into a projection that has no other use for them.
+ */
+export interface ShareContext {
+  /** Resolves a character id to its display name. */
+  nameOf: (characterId: string) => string;
+  mapName?: string | null;
+  eventName?: string | null;
+  categoryNames?: string[];
+  /** The public match page for this battle. */
+  url?: string | null;
+}
+
+/**
+ * The battle as a few lines of shareable text.
+ *
+ * Built from `BattleSummary` and nothing else, which is what keeps it honest:
+ * every figure it prints has already been through `summaryOf`, so the shared
+ * text and the results screen cannot disagree. There is no arithmetic in this
+ * function — no totals, no averages, and above all no re-derived odds. An
+ * upset line quotes `upset.wonAtProbability`, the forecast the engine stored;
+ * a turning point quotes the engine's own sentence.
+ *
+ * Sections whose authoritative field is missing are **left out**. A share text
+ * that invented a turning point for a battle that did not have one would be a
+ * small lie that travels further than any other text in the product.
+ */
+export function shareTextOf(summary: BattleSummary, context: ShareContext): string {
+  const lines: string[] = ["DRAFT WAR"];
+
+  if (summary.winner) {
+    // The same sentence the results card shows, in the same order.
+    const beaten = summary.runnerUp ? ` beat ${summary.runnerUp.nickname}` : "";
+    lines.push(`🏆 ${summary.winner.nickname}${beaten} · +${summary.winner.points} pts`);
+  }
+
+  if (summary.mvp) {
+    lines.push(
+      `⭐ MVP ${context.nameOf(summary.mvp.characterId)} — ` +
+        `${summary.mvp.performance}% of expectation`,
+    );
+  }
+
+  // Only when the engine flagged it, and quoting the forecast it stored.
+  if (summary.upset) {
+    lines.push(`🔥 Upset · won at ${summary.upset.wonAtProbability}%`);
+  }
+
+  // Only when the engine found one, in the engine's own words.
+  if (summary.turningPoint) {
+    lines.push(`🔥 ${summary.turningPoint.text}`);
+  }
+
+  const context_ = [
+    (context.categoryNames ?? []).join(" + "),
+    context.mapName ?? "",
+    context.eventName ?? "",
+  ].filter((part) => part.length > 0);
+  if (context_.length > 0) lines.push(context_.join(" · "));
+
+  if (context.url) lines.push("", context.url);
+
+  return lines.join("\n");
+}

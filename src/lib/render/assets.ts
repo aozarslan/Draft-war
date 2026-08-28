@@ -295,8 +295,19 @@ export class AssetStore {
     frame: number,
     compose: (ctx: CanvasRenderingContext2D, size: number) => void,
     size: number,
+    /**
+     * What the character currently looks like.
+     *
+     * Part of the key because the cache stores *pictures*, and two different
+     * looks are two different pictures. In production a character's identity
+     * is fixed for the life of the page, so leaving this out was harmless —
+     * right up until the dev harness started changing props at runtime and
+     * every frame came back from the cache unchanged, which is how this was
+     * found. A key that omits an input is a bug waiting for a caller.
+     */
+    identityKey: string,
   ): HTMLCanvasElement | null {
-    const key = `${characterId}|${row}|${frame}|${size}`;
+    const key = `${characterId}|${row}|${frame}|${size}|${identityKey}`;
     const cached = this.composed.get(key);
     if (cached !== undefined) return cached;
     if (typeof document === "undefined") return null;

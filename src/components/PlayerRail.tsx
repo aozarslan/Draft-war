@@ -3,6 +3,8 @@
 import type { StateResponse } from "@/lib/client/api";
 import type { Character } from "@/lib/game/types";
 import { playerColor } from "@/lib/game/colors";
+import { nicknameFor } from "@/lib/game/characters";
+import { creditsOf } from "@/lib/client/economy";
 
 /**
  * Opponent status. Deliberately shows only public information: roster, credits
@@ -63,7 +65,7 @@ export function PlayerRail({
 
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="text-2xl font-black tabular-nums" style={{ color: color.hex }}>
-                  {p.credits}
+                  {creditsOf(snapshot, p.id)}
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">
                   credits
@@ -93,6 +95,18 @@ export function PlayerRail({
                     <li key={r.characterId} className="flex justify-between gap-2 text-[11px]">
                       <span className="truncate text-white/70">
                         {charactersById[r.characterId]?.name ?? r.characterId}
+                        {(() => {
+                          const name = charactersById[r.characterId]?.name;
+                          if (!name) return null;
+                          const nick = nicknameFor(r.characterId, name);
+                          // One line per slot here, so the nickname is a
+                          // suffix rather than a second row.
+                          return nick === name ? null : (
+                            <span className="ml-1.5 font-black uppercase tracking-wider text-amber-300/60">
+                              {nick}
+                            </span>
+                          );
+                        })()}
                       </span>
                       <span className="tabular-nums text-white/35">{r.price}</span>
                     </li>

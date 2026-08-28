@@ -1,4 +1,14 @@
 /**
+ * Type-only imports, erased at compile time.
+ *
+ * `PoolEntry` carries optional presentation fields whose vocabulary is defined
+ * by the render layer. Importing the *types* costs nothing at runtime and adds
+ * no dependency in that direction — this file still emits no JavaScript.
+ */
+import type { IdentityConfig } from "../render/identity";
+import type { VisualArchetypeId } from "../render/archetypes";
+
+/**
  * Core domain types for DRAFT WAR.
  *
  * Everything in `lib/game` is framework-free and side-effect-free so that the
@@ -107,6 +117,30 @@ export interface PoolEntry {
   ab?: string[];
   /** Actor, for film characters. */
   a?: string | null;
+
+  // ---- Presentation only --------------------------------------------------
+  // The three fields below describe how a character *looks and is spoken
+  // about*. None of them reaches the simulation: they are compiled into a
+  // client-side table (`CHARACTER_VISUALS`), never written to the database,
+  // and never read by `simulateBattle`. That separation is the whole point —
+  // artwork must not be able to move a number.
+
+  /**
+   * The short name players shout across the table. "THE KING".
+   *
+   * Distinct from `n`, which stays the catalogue name. A nickname is for being
+   * said out loud during an auction; a name is for being looked up.
+   */
+  nick?: string;
+  /**
+   * Hand-authored look, overriding what the identity rules would derive.
+   *
+   * Lives here rather than in a table keyed by generated id so a character and
+   * its appearance are defined in one place and cannot drift apart.
+   */
+  i?: Partial<IdentityConfig>;
+  /** Body plan, when the rules would pick the wrong one. */
+  va?: VisualArchetypeId;
 }
 
 export interface MapModifier {

@@ -283,6 +283,96 @@ export const CATEGORIES: Category[] = [
     realWorld: false,
   },
   {
+    id: "football",
+    name: "FOOTBALL",
+    icon: "\u26bd",
+    tagline: "The archetypes the whole world argues about.",
+    description:
+      "Original fictional footballers built from the roles global football keeps producing — the tiny playmaker, the towering finisher, the wall at the back.",
+    palette: ["#065f46", "#34d399"],
+    accent: "#34d399",
+    stats: [
+      { key: "finishing", label: "Finishing", icon: "\ud83c\udfaf", hint: "Turning a chance into a goal." },
+      { key: "vision", label: "Vision", icon: "\ud83d\udc41", hint: "Seeing the pass before it exists." },
+      { key: "pace", label: "Pace", icon: "\u26a1", hint: "Acceleration and top speed." },
+      { key: "physical", label: "Physical", icon: "\ud83d\udcaa", hint: "Strength, balance and stamina." },
+      { key: "technique", label: "Technique", icon: "\u2728", hint: "First touch, dribbling, set pieces." },
+      { key: "composure", label: "Composure", icon: "\ud83e\uddca", hint: "Holding a decision under pressure." },
+    ],
+    // The same five axes every other category projects onto. A footballer's
+    // "finishing" is this game's power the way an animal's "bite" is; nothing
+    // about the battle engine knows a football category exists.
+    axes: {
+      power: [["finishing", 0.6], ["physical", 0.4]],
+      speed: [["pace", 1]],
+      defense: [["physical", 0.7], ["composure", 0.3]],
+      strategy: [["vision", 0.6], ["composure", 0.4]],
+      special: [["technique", 0.7], ["vision", 0.3]],
+    },
+    synergies: [
+      { tag: "playmaker", label: "Playmakers", perMember: 0.025 },
+      { tag: "striker", label: "Strike Force", perMember: 0.025 },
+      { tag: "technical", label: "Technicians", perMember: 0.02 },
+      { tag: "physical", label: "Physical Presence", perMember: 0.025 },
+      { tag: "defensive", label: "Back Line", perMember: 0.025 },
+      { tag: "speed", label: "Pace Merchants", perMember: 0.02 },
+    ],
+    disclaimer:
+      "Original fictional football archetypes inspired by global football culture. Not affiliated with or endorsed by any real athlete, club, league, federation, or organization.",
+    // Invented people, not real ones. That is the whole design constraint of
+    // this category and the flag the rest of the game reads to know it.
+    realWorld: false,
+  },
+  {
+    id: "basketball",
+    name: "BASKETBALL",
+    icon: "\ud83c\udfc0",
+    tagline: "Five roles, one floor, endless arguments.",
+    description:
+      "Original fictional basketball archetypes — the shooter, the rim protector, the floor general — built from the roles the sport keeps producing rather than from anyone who played them.",
+    palette: ["#7c2d12", "#fb923c"],
+    accent: "#fb923c",
+    // The same six inputs football uses. Two categories sharing a stat
+    // vocabulary is not duplication: they weight it differently on the way to
+    // the axes, which is where the difference actually lives.
+    stats: [
+      { key: "finishing", label: "Scoring", icon: "\ud83c\udfaf", hint: "Putting the ball in the basket." },
+      { key: "vision", label: "Vision", icon: "\ud83d\udc41", hint: "Reading the floor and finding the pass." },
+      { key: "pace", label: "Pace", icon: "\u26a1", hint: "First step and transition speed." },
+      { key: "physical", label: "Physical", icon: "\ud83d\udcaa", hint: "Size, strength and work on the glass." },
+      { key: "technique", label: "Touch", icon: "\u2728", hint: "Handle, footwork and shooting form." },
+      { key: "composure", label: "Composure", icon: "\ud83e\uddca", hint: "Decisions with the clock running down." },
+    ],
+    // Weighted for basketball rather than copied from football: `special` leans
+    // on touch *and* scoring, because a shooter's whole contribution is a shot
+    // going in, and `defense` leans harder on size than a footballer's does.
+    axes: {
+      power: [["finishing", 0.55], ["physical", 0.45]],
+      // Pace with no handle gets you nowhere against a set defence, so touch
+      // carries a fifth of the speed axis. Pure pace made a quarter of the
+      // roster read as speedsters regardless of what they were written as.
+      speed: [["pace", 0.8], ["technique", 0.2]],
+      // Defence is not only size. A guard who slides his feet defends as
+      // surely as a centre who blocks shots, and a recipe that read defence
+      // as bulk alone turned a third of the roster into tanks — a measurement
+      // problem in the recipe, not a reason to bend anybody's stat line.
+      defense: [["physical", 0.55], ["composure", 0.25], ["pace", 0.2]],
+      strategy: [["vision", 0.65], ["composure", 0.35]],
+      special: [["technique", 0.6], ["finishing", 0.4]],
+    },
+    synergies: [
+      { tag: "shooter", label: "Sharpshooters", perMember: 0.025 },
+      { tag: "playmaker", label: "Playmakers", perMember: 0.025 },
+      { tag: "rim", label: "Rim Pressure", perMember: 0.025 },
+      { tag: "lockdown", label: "Lockdown", perMember: 0.025 },
+      { tag: "glass", label: "Glass Cleaners", perMember: 0.02 },
+      { tag: "two-way", label: "Two-Way", perMember: 0.02 },
+    ],
+    disclaimer:
+      "Original fictional basketball archetypes inspired by the roles the sport produces. Not affiliated with or endorsed by any real athlete, team, league, or organization.",
+    realWorld: false,
+  },
+  {
     id: "video-games",
     name: "VIDEO GAMES",
     icon: "🎮",

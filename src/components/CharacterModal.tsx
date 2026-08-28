@@ -5,6 +5,8 @@ import { getCategory } from "@/lib/game/categories";
 import type { Character } from "@/lib/game/types";
 import { CharacterImage, ImageCredit } from "./CharacterImage";
 import { GameRatingNote } from "./GameRatingNote";
+import { Nickname } from "./ui";
+import { nicknameFor } from "@/lib/game/characters";
 
 /**
  * Full character sheet. Opens as a centred dialog on desktop and a bottom sheet
@@ -70,6 +72,10 @@ export function CharacterModal({
               {category.icon} {category.name}
               {character.version ? ` · ${character.version}` : ""}
             </p>
+            <Nickname
+              nickname={nicknameFor(character.id, character.name)}
+              name={character.name}
+            />
             <h2 className="headline text-[clamp(1.6rem,7vw,2.4rem)] leading-none">
               {character.name}
             </h2>

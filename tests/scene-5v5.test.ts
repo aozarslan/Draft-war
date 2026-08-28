@@ -4,7 +4,7 @@ import { CHARACTERS } from "../src/lib/game/characters";
 import { MAPS } from "../src/lib/game/maps";
 import { EVENT_CARDS } from "../src/lib/game/events";
 import { toReplay, type Replay, type ReplayContext } from "../src/lib/game/replay";
-import { sheetFor, visualArchetypeFor } from "../src/lib/render/archetypes";
+import { DRAWN_ARCHETYPES, sheetFor, visualArchetypeFor } from "../src/lib/render/archetypes";
 import { ARENA, sceneAt } from "../src/lib/render/scene";
 import type { BattleResult } from "../src/lib/game/types";
 
@@ -163,13 +163,15 @@ describe("six body plans on the field at once", () => {
     }
   });
 
-  it("uses all six sheets in the one battle", () => {
+  it("uses every body plan in the one battle", () => {
+    // Counted against the list of drawn plans rather than a literal: S3 added
+    // two, and a hardcoded six quietly became a test of last year's roster.
     const sheets = new Set(
       replay.combatants.map(
         (c) => sheetFor(visualArchetypeFor(CHARACTERS_BY_ID[c.characterId]))!.src,
       ),
     );
-    expect(sheets.size).toBe(6);
+    expect(sheets.size).toBe(DRAWN_ARCHETYPES.length);
   });
 });
 

@@ -115,7 +115,7 @@ describe("the identity tiles are made of the same material as the bodies", () =>
     for (const id of IDENTITY_TILE_ROWS) {
       const meta = IDENTITY_TILE_SLOTS[id];
       expect(meta, `${id} has no slot`).toBeTruthy();
-      expect(["head", "back", "body", "mark"]).toContain(meta.slot);
+      expect(["head", "back", "body", "mark", "hand", "foot"]).toContain(meta.slot);
       expect(meta.pivot[0]).toBeGreaterThanOrEqual(0);
       expect(meta.pivot[0]).toBeLessThanOrEqual(IDENTITY_TILE_SIZE);
       expect(meta.pivot[1]).toBeGreaterThanOrEqual(0);
@@ -266,15 +266,17 @@ describe("nobody in a battle looks like anybody else", () => {
   const replay = replayOf("pixel-1");
   const roster = replay.combatants.map((c) => {
     const character = CHARACTERS_BY_ID[c.characterId];
+    const archetype = visualArchetypeFor(character);
     return {
       characterId: c.characterId,
-      config: identityFor(character, visualArchetypeFor(character)),
+      archetype,
+      config: identityFor(character, archetype),
     };
   });
 
   it("separates any pair that collided, deterministically", () => {
     const separated = disambiguate(roster);
-    const signatures = [...separated.values()].map(identitySignature);
+    const signatures = [...separated.values()].map((c) => identitySignature(c));
     expect(new Set(signatures).size).toBe(10);
     expect(disambiguate(roster)).toEqual(separated);
   });
@@ -282,10 +284,12 @@ describe("nobody in a battle looks like anybody else", () => {
   it("leaves an already-distinct roster untouched", () => {
     const separated = disambiguate(roster);
     for (const entry of roster) {
-      const before = identitySignature(entry.config);
-      const others = roster.filter((r) => r !== entry).map((r) => identitySignature(r.config));
+      const before = identitySignature(entry.config, entry.archetype);
+      const others = roster
+        .filter((r) => r !== entry)
+        .map((r) => identitySignature(r.config, r.archetype));
       if (others.includes(before)) continue;
-      expect(identitySignature(separated.get(entry.characterId)!)).toBe(before);
+      expect(identitySignature(separated.get(entry.characterId)!, entry.archetype)).toBe(before);
     }
   });
 
@@ -298,7 +302,7 @@ describe("nobody in a battle looks like anybody else", () => {
       config: { ...clone },
     }));
     const separated = disambiguate(identical);
-    const signatures = [...separated.values()].map(identitySignature);
+    const signatures = [...separated.values()].map((c) => identitySignature(c));
     expect(new Set(signatures).size).toBe(10);
   });
 });

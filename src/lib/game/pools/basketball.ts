@@ -1,0 +1,218 @@
+import type { PoolEntry } from "../types";
+
+/**
+ * BASKETBALL — stats in order: finishing, vision, pace, physical, technique,
+ * composure.
+ *
+ * **Invented players, real roles.** Basketball produces the same set of jobs
+ * everywhere it is played — somebody has to guard the rim, somebody has to
+ * make the pass, somebody has to take the shot with four seconds left — and a
+ * table can argue about those jobs without any real person being involved. So
+ * the jobs are the roster. No athlete's name, team, league, sponsor or number
+ * appears here, and `w: null` keeps the Wikipedia enricher away so no real
+ * portrait can arrive by accident.
+ *
+ * Every rating is a GAME RATING invented for DRAFT WAR.
+ */
+export const BASKETBALL: PoolEntry[] = [
+  {
+    n: "The Baseline Skyhook", w: null, u: "Original", t: "A shot nobody has blocked yet",
+    g: ["rim", "glass", "shooter"],
+    s: [92, 70, 52, 94, 88, 90],
+    ab: ["Hook Over the Shoulder", "Seal the Block"],
+    nick: "THE SKYHOOK", va: "humanoid_large",
+    i: { head: "PLAIN", back: "NONE", marking: "PLAIN", build: "TOWERING", prop: "BALL_HELD", scale: 1.08 },
+  },
+  {
+    n: "The Floor General", w: null, u: "Original", t: "Runs the game at his own tempo",
+    g: ["playmaker", "two-way"],
+    s: [58, 98, 78, 48, 90, 94],
+    ab: ["Call the Set", "Skip Pass"],
+    nick: "THE FLOOR GENERAL", va: "humanoid_medium",
+    i: { head: "CREST", back: "NONE", marking: "PATCH", build: "SLIGHT", prop: "BALL_HELD", scale: 0.90 },
+  },
+  {
+    n: "The Downhill Slasher", w: null, u: "Original", t: "Two dribbles and he is at the rim",
+    g: ["rim", "two-way"],
+    s: [90, 66, 94, 74, 80, 72],
+    ab: ["First Step", "Euro Step"],
+    nick: "THE SLASHER", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "STRIPES", build: "NORMAL", prop: "BALL_HELD", scale: 0.96 },
+  },
+  {
+    n: "The Rim Guardian", w: null, u: "Original", t: "The paint is closed",
+    g: ["lockdown", "glass", "rim"],
+    s: [42, 76, 60, 96, 56, 88],
+    ab: ["Weak Side Block", "Verticality"],
+    nick: "THE RIM GUARDIAN", va: "humanoid_large",
+    i: { head: "HELM", back: "NONE", marking: "PLAIN", build: "HEAVY", prop: "NONE", scale: 1.06 },
+  },
+  {
+    n: "The Corner Sniper", w: null, u: "Original", t: "Leave him and it is three",
+    g: ["shooter"],
+    s: [94, 64, 62, 50, 97, 92],
+    ab: ["Quick Release", "Deep Range"],
+    nick: "THE SNIPER", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "SPOTS", build: "SLIGHT", prop: "BALL_HELD", scale: 0.94 },
+  },
+  {
+    n: "The Glass Cleaner", w: null, u: "Original", t: "Owns both backboards",
+    g: ["glass", "rim"],
+    s: [60, 62, 56, 97, 58, 80],
+    ab: ["Box Out", "Second Chance"],
+    nick: "THE GLASS CLEANER", va: "humanoid_large",
+    i: { head: "PLAIN", back: "MANE", marking: "PLAIN", build: "HEAVY", prop: "NONE", scale: 1.10 },
+  },
+  {
+    n: "The Sixth Man", w: null, u: "Original", t: "Changes the game off the bench",
+    g: ["shooter", "two-way"],
+    s: [86, 76, 86, 62, 84, 70],
+    ab: ["Instant Offense", "Change of Pace"],
+    nick: "THE SIXTH MAN", va: "humanoid_medium",
+    i: { head: "CREST", back: "NONE", marking: "PLAIN", build: "NORMAL", prop: "BALL_HELD", scale: 0.98 },
+  },
+  {
+    n: "The Two Way Wing", w: null, u: "Original", t: "Guards their best, scores on yours",
+    g: ["two-way", "lockdown", "shooter"],
+    s: [80, 82, 80, 84, 80, 86],
+    ab: ["Switch Everything", "Corner Three"],
+    nick: "THE TWO-WAY", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "BANDS", build: "NORMAL", prop: "BALL_HELD", scale: 1.00 },
+  },
+  {
+    n: "The Ankle Breaker", w: null, u: "Original", t: "The crossover is the whole highlight",
+    g: ["playmaker", "two-way"],
+    s: [78, 84, 92, 52, 96, 70],
+    ab: ["Crossover", "Hesitation"],
+    nick: "THE ANKLE BREAKER", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "MANE", marking: "SPOTS", build: "SLIGHT", prop: "BALL_HELD", scale: 0.92 },
+  },
+  {
+    n: "The Stretch Big", w: null, u: "Original", t: "Drags the centre out to the arc",
+    g: ["shooter", "glass"],
+    s: [86, 70, 54, 88, 92, 84],
+    ab: ["Pop, Not Roll", "Trail Three"],
+    nick: "THE STRETCH BIG", va: "humanoid_large",
+    i: { head: "PLAIN", back: "NONE", marking: "STRIPES", build: "TOWERING", prop: "BALL_HELD", scale: 1.04 },
+  },
+  {
+    n: "The Point Centre", w: null, u: "Original", t: "The offence runs through the post",
+    g: ["playmaker", "glass", "rim"],
+    s: [72, 94, 52, 90, 84, 88],
+    ab: ["High Post Read", "Handoff"],
+    nick: "THE POINT CENTRE", va: "humanoid_large",
+    i: { head: "CREST", back: "NONE", marking: "PATCH", build: "HEAVY", prop: "BALL_HELD", scale: 1.06 },
+  },
+  {
+    n: "The Lockdown", w: null, u: "Original", t: "Ninety-four feet of it",
+    g: ["lockdown", "two-way"],
+    s: [52, 80, 88, 86, 62, 90],
+    ab: ["Full Court Press", "Deny the Catch"],
+    nick: "THE LOCKDOWN", va: "humanoid_medium",
+    i: { head: "HELM", back: "NONE", marking: "PLAIN", build: "NORMAL", prop: "NONE", scale: 0.98 },
+  },
+  {
+    n: "The Microwave", w: null, u: "Original", t: "Heats up in ninety seconds",
+    g: ["shooter"],
+    s: [96, 58, 88, 54, 88, 62],
+    ab: ["Found His Rhythm", "Pull Up"],
+    nick: "THE MICROWAVE", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "PATCH", build: "SLIGHT", prop: "BALL_HELD", scale: 0.96 },
+  },
+  {
+    n: "The Enforcer", w: null, u: "Original", t: "Nobody drives twice",
+    g: ["lockdown", "glass"],
+    s: [64, 58, 58, 98, 54, 76],
+    ab: ["Hard Foul", "Set the Screen"],
+    nick: "THE ENFORCER", va: "humanoid_large",
+    i: { head: "HELM", back: "NONE", marking: "BANDS", build: "HEAVY", prop: "NONE", scale: 1.12 },
+  },
+  {
+    n: "The Motor", w: null, u: "Original", t: "Still sprinting in the fourth",
+    g: ["two-way", "rim"],
+    s: [72, 74, 90, 82, 70, 78],
+    ab: ["Run the Floor", "Offensive Board"],
+    nick: "THE MOTOR", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "SPOTS", build: "NORMAL", prop: "NONE", scale: 0.96 },
+  },
+  {
+    n: "The Closer", w: null, u: "Original", t: "Wants it with four seconds left",
+    g: ["shooter", "playmaker"],
+    s: [92, 78, 72, 66, 90, 98],
+    ab: ["Iso the Clock", "Step Back"],
+    nick: "THE CLOSER", va: "humanoid_medium",
+    i: { head: "CREST", back: "NONE", marking: "BANDS", build: "NORMAL", prop: "BALL_HELD", scale: 1.00 },
+  },
+  {
+    n: "The Roll Finisher", w: null, u: "Original", t: "Set the screen, then beat you down the lane",
+    g: ["rim", "glass"],
+    s: [88, 56, 76, 92, 68, 74],
+    ab: ["Short Roll", "Lob Threat"],
+    nick: "THE ROLLER", va: "humanoid_large",
+    i: { head: "PLAIN", back: "NONE", marking: "PATCH", build: "HEAVY", prop: "BALL_HELD", scale: 1.06 },
+  },
+  {
+    n: "The Spot Up Shooter", w: null, u: "Original", t: "Catch, rise, done",
+    g: ["shooter"],
+    s: [88, 62, 58, 56, 94, 88],
+    ab: ["Catch and Shoot", "Relocate"],
+    nick: "THE SPOT UP", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "PLAIN", build: "SLIGHT", prop: "BALL_HELD", scale: 0.92 },
+  },
+  {
+    n: "The Iron", w: null, u: "Original", t: "Has not missed a game in years",
+    g: ["two-way", "glass"],
+    s: [66, 76, 68, 94, 66, 92],
+    ab: ["Never Sits", "Absorb Contact"],
+    nick: "THE IRON", va: "humanoid_large",
+    i: { head: "PLAIN", back: "MANE", marking: "BANDS", build: "NORMAL", prop: "NONE", scale: 1.04 },
+  },
+  {
+    n: "The Professor", w: null, u: "Original", t: "Slower than everyone, ahead of everyone",
+    g: ["playmaker", "two-way"],
+    s: [60, 97, 46, 60, 86, 96],
+    ab: ["Two Passes Ahead", "Draw and Kick"],
+    nick: "THE PROFESSOR", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "MANE", marking: "PLAIN", build: "SQUAT", prop: "BALL_HELD", scale: 0.90 },
+  },
+  {
+    n: "The Floater Artist", w: null, u: "Original", t: "Too small for the block, too soft to miss",
+    g: ["rim", "playmaker"],
+    s: [86, 80, 74, 54, 93, 80],
+    ab: ["Runner in the Lane", "Off Foot Finish"],
+    nick: "THE FLOATER", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "BANDS", build: "SLIGHT", prop: "BALL_HELD", scale: 0.94 },
+  },
+  {
+    n: "The Vertical Threat", w: null, u: "Original", t: "Everything above the rim",
+    g: ["rim", "glass"],
+    s: [88, 56, 92, 86, 66, 66],
+    ab: ["Alley Oop", "Chase Down"],
+    nick: "THE VERTICAL", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "NONE", marking: "STRIPES", build: "TOWERING", prop: "BALL_HELD", scale: 1.02 },
+  },
+  {
+    n: "The Pickpocket", w: null, u: "Original", t: "Gone the moment you look away",
+    g: ["lockdown", "playmaker"],
+    s: [60, 88, 94, 58, 76, 78],
+    ab: ["Jump the Lane", "Strip on the Gather"],
+    nick: "THE PICKPOCKET", va: "humanoid_medium",
+    i: { head: "CREST", back: "NONE", marking: "SPOTS", build: "SLIGHT", prop: "NONE", scale: 0.92 },
+  },
+  {
+    n: "The Swingman", w: null, u: "Original", t: "Three positions, no complaints",
+    g: ["two-way", "shooter", "lockdown"],
+    s: [82, 80, 84, 78, 82, 80],
+    ab: ["Guard One Through Four", "Fill the Lane"],
+    nick: "THE SWINGMAN", va: "humanoid_medium",
+    i: { head: "PLAIN", back: "MANE", marking: "PATCH", build: "NORMAL", prop: "BALL_HELD", scale: 0.98 },
+  },
+  {
+    n: "The Fortress", w: null, u: "Original", t: "The lane simply is not available",
+    g: ["lockdown", "glass"],
+    s: [38, 72, 44, 99, 50, 90],
+    ab: ["Wall Up", "Own the Restricted Area"],
+    nick: "THE FORTRESS", va: "humanoid_large",
+    i: { head: "HELM", back: "MANE", marking: "PLAIN", build: "HEAVY", prop: "NONE", scale: 1.14 },
+  },
+];

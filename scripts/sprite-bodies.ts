@@ -203,6 +203,33 @@ export interface BodyAnchors {
   /** The body's own centre. */
   body: Anchored;
   /**
+   * Where a held prop sits, and the angle it hangs at.
+   *
+   * Reported by the body for the same reason every other anchor is: only the
+   * function that drew the arm knows where the hand ended up after a lunge,
+   * a rear or a collapse. A prop placed from outside would swim against the
+   * animation on exactly the frames anyone is looking at.
+   *
+   * Bodies with no hands still report one — a forward point on the flank —
+   * so an authored prop never falls back to the frame origin. Nothing in the
+   * catalogue asks for one, since props default to NONE.
+   */
+  hand: Anchored;
+  /**
+   * Where something resting on the ground in front of the body sits.
+   *
+   * A football is not carried, and putting it on `hand` produced a basketball
+   * glued to the chest — worse on a large humanoid, where the hand is held
+   * further out for reach and the ball drifted clear of the body entirely.
+   * Rather than nudge the tile until it looked right on one body and wrong on
+   * the next, the bodies report the place themselves, exactly as they already
+   * do for the head, the back and the hand.
+   *
+   * Reported by every body plan so a prop can never fall back to the frame
+   * origin, and tracked per frame so it travels with a lunge.
+   */
+  foot: Anchored;
+  /**
    * Points along the flank, from tail to shoulder, with the local surface
    * angle at each.
    *
@@ -362,6 +389,8 @@ function drawQuadruped(cell: Pixels, pose: Pose, scale = 1): BodyAnchors {
     head: { x: headX + pose.push, y: headY, angle: spine + pose.lean * 0.05 },
     back: { x: 16 + pose.push, y: bodyCy - bodyRy, angle: spine },
     body: { x: 16 + pose.push, y: bodyCy, angle: spine },
+    hand: { x: shoulderPoint.x + 2, y: shoulderPoint.y + 1, angle: spine },
+    foot: { x: 16 + 6 * scale + pose.push, y: GROUND - 2, angle: 0 },
     marks: alongLine(tailPoint, shoulderPoint, 4, spine, bodyRy * 0.25),
   };
 }
@@ -401,6 +430,10 @@ function drawHumanoid(cell: Pixels, pose: Pose): BodyAnchors {
       head: { x: 9 + pose.push, y: y - 1, angle: 0 },
       back: { x: 16 + pose.push, y: y - 2, angle: 0 },
       body: { x: 16 + pose.push, y, angle: 0 },
+      // At the end of the flung-out arm. A dropped prop should lie beside the
+      // body, not hang where the hand used to be while standing.
+      hand: { x: 17 + pose.push, y: y - 5, angle: 0 },
+      foot: { x: 22 + pose.push, y: y + 2, angle: 0 },
       marks: alongLine(
         { x: 11 + pose.push, y }, { x: 21 + pose.push, y }, 3, 0, 1,
       ),
@@ -457,6 +490,8 @@ function drawHumanoid(cell: Pixels, pose: Pose): BodyAnchors {
     head: { x: headX + pose.push, y: headY, angle: torso },
     back: { x: shoulderX + pose.push, y: shoulderY, angle: torso },
     body: { x: 16 + pose.push, y: (hipY + shoulderY) / 2, angle: torso },
+    hand: { x: shoulderX + pose.push + 4, y: shoulderY + 4, angle: torso },
+    foot: { x: 16 + pose.push + 4, y: GROUND - 2 - pose.limbs[2] * 0.5, angle: 0 },
     marks: alongLine(hip, shoulder, 3, torso, 0.5),
   };
 }
@@ -540,6 +575,8 @@ function drawWinged(cell: Pixels, pose: Pose): BodyAnchors {
     head: { x: headX + pose.push, y: headY, angle: pitch },
     back: { x: bodyX + pose.push, y: bodyY - 3, angle: pitch },
     body: { x: bodyX + pose.push, y: bodyY, angle: pitch },
+    hand: { x: bodyX + pose.push + 3, y: bodyY + 4, angle: pitch },
+    foot: { x: bodyX + pose.push + 3, y: bodyY + 7, angle: 0 },
     marks: alongLine(
       { x: bodyX - 3 + pose.push, y: bodyY }, { x: bodyX + 3 + pose.push, y: bodyY },
       3, pitch, 0.4,
@@ -635,6 +672,8 @@ function drawSerpentine(cell: Pixels, pose: Pose): BodyAnchors {
     head: { x: headX + pose.push, y: headY, angle: headAngle },
     back: { x: 14 + pose.push, y: baseY - coil * 0.4 - 2, angle: headAngle },
     body: { x: 14 + pose.push, y: baseY - coil * 0.3, angle: headAngle },
+    hand: { x: headX + pose.push + 2, y: headY + 3, angle: headAngle },
+    foot: { x: 18 + pose.push, y: GROUND - 2, angle: 0 },
     marks,
   };
 }
@@ -702,6 +741,8 @@ function drawAquatic(cell: Pixels, pose: Pose): BodyAnchors {
     head: { x: headX + pose.push, y: headY, angle: pitch },
     back: { x: 17 + pose.push, y: bodyY + 5 * finDir, angle: pitch },
     body: { x: 16 + pose.push, y: bodyY, angle: pitch },
+    hand: { x: 20 + pose.push, y: bodyY + 3, angle: pitch },
+    foot: { x: 20 + pose.push, y: bodyY + 6, angle: 0 },
     marks: alongLine(
       { x: 10 + pose.push, y: bodyY }, { x: 21 + pose.push, y: bodyY },
       4, pitch, 0.6,
@@ -715,20 +756,252 @@ function drawAquatic(cell: Pixels, pose: Pose): BodyAnchors {
 
 export type BodyId =
   | "humanoid_medium"
+  | "humanoid_large"
   | "quadruped_small"
   | "quadruped_medium"
+  | "quadruped_large"
   | "serpentine"
   | "winged"
   | "aquatic";
 
 export const BODIES: Record<BodyId, (cell: Pixels, pose: Pose) => BodyAnchors> = {
   humanoid_medium: drawHumanoid,
+  // Its own function, not `drawHumanoid` at a larger scale. A scaled person is
+  // a tall person; a heavyweight is a different set of proportions.
+  humanoid_large: drawHumanoidLarge,
   quadruped_small: (cell, pose) => drawQuadruped(cell, pose, 0.72),
   quadruped_medium: (cell, pose) => drawQuadruped(cell, pose, 1),
+  // Likewise: scaling the medium quadruped up lengthens the legs and produces
+  // a horse. Mass has to move down and forward instead.
+  quadruped_large: drawQuadrupedLarge,
   serpentine: drawSerpentine,
   winged: drawWinged,
   aquatic: drawAquatic,
 };
+
+// ---------------------------------------------------------------------------
+// Large humanoid
+// ---------------------------------------------------------------------------
+
+/**
+ * A heavyweight: a different animal from the medium humanoid, not a bigger one.
+ *
+ * The medium figure is a person — narrow shoulders, a visible neck, limbs that
+ * read as limbs. Scaling that up produces a tall person, which is exactly the
+ * wrong answer: a gorilla and a giant are not tall people. So the proportions
+ * are re-authored rather than multiplied.
+ *
+ * What actually separates the two at thirty screen pixels:
+ *
+ *  - shoulders nearly twice as wide as the head, instead of level with it
+ *  - a barrel torso drawn with a nine-pixel brush against the medium's six
+ *  - almost no neck, so the head sits *into* the mass rather than on top of it
+ *  - a wide stance: the feet are outside the shoulders, which reads as planted
+ *  - arms that hang below the hip, heavy at the hand
+ *
+ * The head is deliberately no bigger than the medium one. Growing it with the
+ * body is what makes a large sprite read as a scaled-up child instead of a
+ * heavyweight — mass has to come from the shoulders down.
+ */
+function drawHumanoidLarge(cell: Pixels, pose: Pose): BodyAnchors {
+  const p = shifted(cell, pose.push);
+  const collapse = clamp01(pose.collapse);
+
+  if (collapse > 0.55) {
+    // Fallen, and bulkier than the medium's fallen pose so the silhouette
+    // still says "heavyweight" once it is on the floor.
+    const y = GROUND - 4;
+    p.ellipse(16, y, 8.5, 3.2, BASE);
+    p.ellipse(16, y - 1, 6, 1.8, LIGHT);
+    p.ellipse(8, y - 1.4, 3.2, 2.8, BASE);
+    p.ellipse(8.4, y - 2, 2, 1.4, LIGHT);
+    p.set(7, y - 1.6, OUTLINE);
+    p.line(22, y + 1.5, 27, y + 2.5, SHADE, 3);
+    p.line(22, y - 1.5, 27, y - 1, SHADE, 3);
+    p.line(12, y - 3, 17, y - 6, SHADE, 3);
+    return {
+      head: { x: 8 + pose.push, y: y - 1.4, angle: 0 },
+      back: { x: 16 + pose.push, y: y - 2.5, angle: 0 },
+      body: { x: 16 + pose.push, y, angle: 0 },
+      hand: { x: 17 + pose.push, y: y - 6, angle: 0 },
+      foot: { x: 24 + pose.push, y: y + 3, angle: 0 },
+      marks: alongLine(
+        { x: 10 + pose.push, y }, { x: 22 + pose.push, y }, 3, 0, 1.2,
+      ),
+    };
+  }
+
+  // Lower hip and a longer torso: the mass lives between the hip and the
+  // shoulder, so that is the span that grows.
+  const hipY = GROUND - 7 + pose.lift;
+  const shoulderY = hipY - 9;
+
+  // Legs: wider apart and thicker than the medium's, and short for the body.
+  for (let i = 2; i < 4; i++) {
+    const x = 16 + (i === 2 ? 4 : -4);
+    const foot = GROUND - 2 - pose.limbs[i];
+    const knee = (hipY + foot) / 2;
+    const tone = i === 2 ? BASE : SHADE;
+    p.line(x, hipY, x + pose.lean * 0.3, knee, tone, 3);
+    p.line(x + pose.lean * 0.3, knee, x + pose.lean * 0.5, foot, tone, 3);
+    p.rect(x + pose.lean * 0.5 - 2, foot, 5, 1, tone);
+  }
+
+  // Torso: a barrel, not a plank.
+  p.line(16, hipY, 16 + pose.lean, shoulderY + 2, BASE, 9);
+  p.ellipse(16 + pose.lean * 0.4, (hipY + shoulderY) / 2, 5.4, 4.4, BASE);
+  p.ellipse(16 + pose.lean * 0.4, (hipY + shoulderY) / 2 - 1, 3.4, 2.6, LIGHT);
+
+  // Shoulders: the single loudest difference from the medium body.
+  const shoulderX = 16 + pose.lean;
+  p.ellipse(shoulderX, shoulderY + 1.5, 6.4, 3, BASE);
+  p.ellipse(shoulderX, shoulderY + 1, 4.4, 1.8, LIGHT);
+  p.ellipse(shoulderX - 5.4, shoulderY + 2, 2.2, 2.2, SHADE);
+  p.ellipse(shoulderX + 5.4, shoulderY + 2, 2.2, 2.2, SHADE);
+
+  // Arms: thick, long, and heavy at the hand.
+  for (let i = 0; i < 2; i++) {
+    const reach = pose.limbs[i];
+    const tone = i === 0 ? BASE : SHADE;
+    const side = i === 0 ? 1 : -1;
+    const handX = shoulderX + side * 5 + reach * 1.1 + pose.headX * 0.5;
+    const handY = shoulderY + 7 - reach * 1.1 - pose.rear * 0.6;
+    p.line(shoulderX + side * 5, shoulderY + 2, handX, handY, tone, 3);
+    p.rect(handX - 1.5, handY - 1.5, 3, 3, tone);
+  }
+
+  // Head: same size as the medium's, sunk into the shoulders. No real neck.
+  const headX = shoulderX + pose.headX * 0.4;
+  const headY = shoulderY - 3.5 + pose.headY - pose.rear * 0.4;
+  p.line(shoulderX, shoulderY, headX, headY + 2, SHADE, 3);
+  p.ellipse(headX, headY, 3.2, 3, BASE);
+  p.ellipse(headX + 0.4, headY - 0.8, 2.1, 1.6, LIGHT);
+  if (pose.jaw > 0.4) p.rect(headX + 0.5, headY + 1, 2, Math.max(1, pose.jaw * 2), OUTLINE);
+  p.set(headX + 1.7, headY - 0.4, OUTLINE);
+  p.set(headX - 1.1, headY - 0.4, OUTLINE);
+
+  const hip = { x: 16 + pose.push, y: hipY };
+  const shoulder = { x: shoulderX + pose.push, y: shoulderY };
+  const torso = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x);
+
+  return {
+    head: { x: headX + pose.push, y: headY, angle: torso },
+    back: { x: shoulderX + pose.push, y: shoulderY + 1, angle: torso },
+    body: { x: 16 + pose.push, y: (hipY + shoulderY) / 2, angle: torso },
+    // Out at the near hand, which sits further from the body than the
+    // medium's because the arms are longer.
+    hand: { x: shoulderX + pose.push + 6, y: shoulderY + 6, angle: torso },
+    foot: { x: 16 + pose.push + 6, y: GROUND - 2 - pose.limbs[2] * 0.5, angle: 0 },
+    marks: alongLine(hip, shoulder, 3, torso, 0.8),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Large quadruped
+// ---------------------------------------------------------------------------
+
+/**
+ * A heavy four-legged animal, re-authored rather than scaled.
+ *
+ * `drawQuadruped` takes a scale, and that is how the *small* quadruped is
+ * made — a badger really is a wolf at three-quarter size. Going the other way
+ * does not work: a grizzly is not a big wolf, and an elephant is not a huge
+ * one. Enlarging the medium body produces a horse, because the thing that
+ * grows is leg length.
+ *
+ * So this body moves mass in the opposite direction from the legs:
+ *
+ *  - a deep barrel chest, taller than it is tapered
+ *  - a shoulder hump above the spine, which is the bear/bison read
+ *  - short, thick legs — the body sits low despite being big
+ *  - a heavy head carried low, at or below the shoulder line
+ *  - a short tail, because a long one reads as feline
+ */
+function drawQuadrupedLarge(cell: Pixels, pose: Pose): BodyAnchors {
+  const p = shifted(cell, pose.push);
+  const collapse = clamp01(pose.collapse);
+  const drop = collapse * 2;
+  const squash = 1 - collapse * 0.45;
+
+  // Low and deep: the belly sits closer to the ground than the medium's even
+  // though the animal is bigger, which is most of the silhouette difference.
+  const CX = 15;
+  const bodyCy = GROUND - 11 + pose.lift + drop;
+  const bodyRx = 9.5;
+  const bodyRy = 6.8 * squash;
+
+  const frontY = bodyCy - pose.rear;
+  const backY = bodyCy + pose.rear * 0.3;
+
+  // Legs: short, thick, and set wide. Drawn first so the body overlaps them.
+  const spread = 6;
+  const legX = [CX + spread, CX + spread - 2, CX - spread, CX - spread - 2];
+  for (let i = 0; i < 4; i++) {
+    const x = legX[i];
+    const top = (i < 2 ? frontY : backY) + 3;
+    const foot = GROUND - 2 - pose.limbs[i] - drop * 1.4;
+    const tone = i % 2 === 0 ? SHADE : BASE;
+    if (collapse > 0.6) {
+      p.line(x, top, x + (5 + i), top - 1, tone, 3);
+    } else {
+      const knee = (top + foot) / 2;
+      p.line(x, top, x + pose.lean * 0.3, knee, tone, 3);
+      p.line(x + pose.lean * 0.3, knee, x + pose.lean * 0.45, foot, tone, 3);
+      p.rect(x + pose.lean * 0.45 - 2, foot, 5, 1, tone);
+    }
+  }
+
+  // Haunch, barrel, chest — back to front, each overlapping the last.
+  p.ellipse(CX - 6, backY + 0.5, 6.4, bodyRy, SHADE);
+  p.ellipse(CX, bodyCy, bodyRx, bodyRy, BASE);
+  p.ellipse(CX + 4.5, frontY - 0.5, 6, bodyRy - 0.3, BASE);
+  // The hump: a bear's shoulder, sitting proud of the spine.
+  p.ellipse(CX + 3, frontY - bodyRy + 0.4, 5, 3.2, BASE);
+  p.ellipse(CX + 3, frontY - bodyRy - 0.4, 3.2, 1.6, LIGHT);
+  p.ellipse(CX - 1, bodyCy - 1.6, bodyRx - 3, Math.max(1, bodyRy - 3), LIGHT);
+
+  // A short, low tail. Length here would read as a cat.
+  for (let i = 0; i <= 3; i++) {
+    const t = i / 3;
+    p.set(CX - 9.5 - t * 2.5, backY + 1 - Math.sin(t * 1.6 + pose.tail) * 1.5, i > 2 ? LIGHT : SHADE);
+  }
+
+  // Head: big, carried low and forward, on almost no neck.
+  //
+  // The clamp is the whole reason this line is not one term shorter. A death
+  // pose drives `headY` down so the skull comes to rest *on* the line, and on
+  // a head this large that put the bottom of it two rows under the floor —
+  // the same burial M5 fixed on the other bodies, reappearing because the
+  // head grew and the drop did not.
+  const headX = CX + 6 + pose.headX;
+  const headY = Math.min(GROUND - 6, frontY - 1.5 + pose.headY + drop * 0.6);
+  p.line(CX + 5, frontY - 1, headX - 1, headY, BASE, 5);
+  p.ellipse(headX, headY, 3.8, 3.3, BASE);
+  p.ellipse(headX + 0.5, headY - 1.1, 2.6, 1.9, LIGHT);
+
+  const jaw = pose.jaw * 2;
+  p.ellipse(headX + 3.2, headY + 0.6, 2.2, 1.7, BASE);
+  if (jaw > 0.5) {
+    p.ellipse(headX + 3.2, headY + 1.4 + jaw, 2.1, 1.2, SHADE);
+    p.line(headX + 1.4, headY + 1.4, headX + 4.4, headY + 1 + jaw * 0.6, OUTLINE);
+  }
+  p.set(headX + 1.8, headY - 0.8, OUTLINE);
+
+  const tailPoint = { x: CX - 7 + pose.push, y: backY };
+  const shoulderPoint = { x: CX + 4 + pose.push, y: frontY - bodyRy + 1 };
+  const spine = Math.atan2(shoulderPoint.y - tailPoint.y, shoulderPoint.x - tailPoint.x);
+
+  return {
+    head: { x: headX + pose.push, y: headY, angle: spine + pose.lean * 0.05 },
+    // On the hump rather than on the spine, which is where a mane or a row of
+    // spines belongs on a body shaped like this.
+    back: { x: CX + 3 + pose.push, y: frontY - bodyRy - 1, angle: spine },
+    body: { x: CX + pose.push, y: bodyCy, angle: spine },
+    hand: { x: shoulderPoint.x + 3, y: frontY + 2, angle: spine },
+    foot: { x: CX + 8 + pose.push, y: GROUND - 2, angle: 0 },
+    marks: alongLine(tailPoint, shoulderPoint, 4, spine, bodyRy * 0.3),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Identity tiles
@@ -762,7 +1035,7 @@ export interface IdentityTile {
    * `mark` is the odd one out: it is stamped once per flank point rather than
    * once per character, so a marking follows the body's curve.
    */
-  slot: "head" | "back" | "body" | "mark";
+  slot: "head" | "back" | "body" | "mark" | "hand" | "foot";
   pivot: TilePivot;
   draw: (p: Pixels) => void;
 }
@@ -905,6 +1178,116 @@ export const IDENTITY_TILES: IdentityTile[] = [
     draw: (p) => {
       p.rect(c - 2, c - 4, 4, 8, SHADE);
       p.rect(c - 2, c - 4, 1, 8, LIGHT);
+    },
+  },
+  // ---- props ----
+  //
+  // Held objects, stamped at the body's hand anchor. Eight tiles for the whole
+  // catalogue: a prop says "swordsman" or "footballer" from further away than
+  // any facial feature can, because it breaks the outline instead of
+  // decorating it.
+  //
+  // Every one is drawn with its grip at the pivot and its mass away from it.
+  // The cell is sixteen pixels and its outermost row and column must stay
+  // empty — a tile touching its edge seams into the next one the moment the
+  // sheet is sampled off a whole pixel. The outline pass then adds a further
+  // pixel all round, so every shape below stays inside x,y in 2..13.
+  {
+    id: "BLADE", slot: "hand", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      p.rect(c - 1, 3, 2, 8, BASE);      // blade
+      p.rect(c - 1, 3, 1, 8, LIGHT);     // edge highlight
+      p.rect(c - 3, 11, 7, 1, SHADE);    // crossguard
+      p.rect(c - 1, 12, 2, 2, OUTLINE);  // grip
+    },
+  },
+  {
+    id: "STAFF", slot: "hand", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      p.rect(c - 1, 5, 2, 8, BASE);
+      p.rect(c - 1, 5, 1, 8, SHADE);
+      p.ellipse(c, 4, 1.6, 1.6, LIGHT);
+    },
+  },
+  {
+    id: "BOW", slot: "hand", pivot: { x: c, y: 8 },
+    draw: (p) => {
+      // A C opening away from the body, closed by its string.
+      for (let i = 0; i <= 14; i++) {
+        const t = i / 14;
+        const a = -Math.PI / 2 + (t - 0.5) * 2.6;
+        p.set(c - 1 + Math.cos(a) * 3.5, 8 + Math.sin(a) * 4, BASE);
+      }
+      p.rect(c - 1, 4, 1, 9, LIGHT);
+    },
+  },
+  {
+    id: "SHIELD", slot: "hand", pivot: { x: c, y: 8 },
+    draw: (p) => {
+      p.ellipse(c, 8, 2.6, 4, BASE);
+      p.ellipse(c, 8, 1.5, 2.6, SHADE);
+      p.set(c, 8, LIGHT);
+    },
+  },
+  {
+    // The one prop that is not carried.
+    //
+    // Every other tile here hangs off `hand`, which is where a grip is. A
+    // football sits on the grass, so it hangs off `foot` — an anchor the
+    // bodies now report for exactly this reason. The first attempt faked it by
+    // pushing the drawing down inside its own cell and dragging the pivot
+    // sideways; that looked right on a medium humanoid and wrong on a large
+    // one, because the offset it was compensating for was different on each
+    // body. Asking the body where its boots are is the version that works
+    // everywhere and needs no compensation at all.
+    id: "BALL", slot: "foot", pivot: { x: c, y: c },
+    draw: (p) => {
+      // Deliberately the roundest thing in the sheet: at arena scale the
+      // silhouette is the whole message.
+      p.ellipse(c, c, 3.2, 3.2, BASE);
+      p.ellipse(c, c, 1.8, 1.8, LIGHT);
+      p.set(c - 2, c - 1, SHADE);
+      p.set(c + 2, c + 2, SHADE);
+    },
+  },
+  {
+    // Carried, unlike its football cousin: seams and all, up at the hand.
+    id: "BALL_HELD", slot: "hand", pivot: { x: c, y: 10 },
+    draw: (p) => {
+      p.ellipse(c, 8, 3.4, 3.4, BASE);
+      p.ellipse(c, 8, 2, 2, LIGHT);
+      // Two seams, which is what separates a basketball from a moon at this
+      // size — the outline alone would read as a plain disc.
+      p.line(c - 3, 6, c + 3, 6, SHADE);
+      p.line(c, 5, c, 11, SHADE);
+    },
+  },
+  {
+    id: "HAMMER", slot: "hand", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      p.rect(c - 1, 7, 2, 6, SHADE);   // haft
+      p.rect(c - 3, 3, 6, 4, BASE);    // head
+      p.rect(c - 3, 3, 6, 2, LIGHT);
+      p.rect(c + 1, 3, 2, 4, OUTLINE);
+    },
+  },
+  {
+    id: "SPEAR", slot: "hand", pivot: { x: c, y: 12 },
+    draw: (p) => {
+      p.rect(c - 1, 6, 2, 7, SHADE);
+      p.triangle(c, 2, c - 2, 6, c + 2, 6, BASE);
+      p.set(c, 3, LIGHT);
+      p.set(c, 4, LIGHT);
+    },
+  },
+  {
+    id: "ORB", slot: "hand", pivot: { x: c, y: 11 },
+    draw: (p) => {
+      // Held clear of the hand, which is what makes it read as conjured
+      // rather than carried.
+      p.ellipse(c, 7, 2.6, 2.6, LIGHT);
+      p.ellipse(c, 7, 1.4, 1.4, BASE);
+      p.set(c - 1, 6, 255);
     },
   },
 ];

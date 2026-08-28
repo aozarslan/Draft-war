@@ -3,6 +3,8 @@
 import { getCategory } from "@/lib/game/categories";
 import type { Character } from "@/lib/game/types";
 import { CharacterImage } from "./CharacterImage";
+import { Nickname } from "./ui";
+import { nicknameFor } from "@/lib/game/characters";
 
 const RARITY_COLOR: Record<string, string> = {
   COMMON: "#94a3b8",
@@ -73,6 +75,10 @@ export function CharacterCard({
           >
             {category.icon} {category.name}
           </p>
+          <Nickname
+            nickname={nicknameFor(character.id, character.name)}
+            name={character.name}
+          />
           <h3 className="headline truncate text-base leading-tight">{character.name}</h3>
           {character.version ? (
             <p className="text-[10px] font-bold text-white/45">{character.version}</p>

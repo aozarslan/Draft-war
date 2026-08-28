@@ -322,6 +322,10 @@ export interface FrameAnchors {
   head: Anchor;
   back: Anchor;
   body: Anchor;
+  /** Where a held prop sits, reported per frame so it follows the pose. */
+  hand: Anchor;
+  /** Where a prop resting on the ground sits — a football, not a sword. */
+  foot: Anchor;
   /** Flank points, tail to shoulder, for markings that follow the body. */
   marks: Anchor[];
 }
@@ -337,6 +341,8 @@ export const SPRITE_ANCHORS: Record<string, (FrameAnchors | null)[][]> = ${JSON.
                 head: [round(a.head.x), round(a.head.y), round3(a.head.angle)],
                 back: [round(a.back.x), round(a.back.y), round3(a.back.angle)],
                 body: [round(a.body.x), round(a.body.y), round3(a.body.angle)],
+                hand: [round(a.hand.x), round(a.hand.y), round3(a.hand.angle)],
+                foot: [round(a.foot.x), round(a.foot.y), round3(a.foot.angle)],
                 marks: a.marks.map(
                   (m) => [round(m.x), round(m.y), round3(m.angle)] as [number, number, number],
                 ),

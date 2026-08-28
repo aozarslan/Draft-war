@@ -212,3 +212,39 @@ export function ConnectionPill({ state }: { state: string }) {
     </span>
   );
 }
+
+/**
+ * A character's shout-name, above its catalogue name.
+ *
+ * Two names do different jobs. `Lion` is what the character *is* — it joins the
+ * roster, the replay and every stored result, and it never changes. `THE KING`
+ * is what a player says out loud across the table while deciding whether to
+ * spend seventeen credits denying it to somebody else. The catalogue name stays
+ * the headline everywhere so the two can never be confused for one another;
+ * this is a label above it, not a replacement for it.
+ *
+ * Renders nothing when a character has no nickname, which is most of them —
+ * the thirteen animals authored in S4 are the only ones so far.
+ */
+export function Nickname({
+  nickname,
+  name,
+  className,
+}: {
+  nickname: string;
+  /** The canonical name. Used only to decide whether the nickname adds anything. */
+  name: string;
+  className?: string;
+}) {
+  if (!nickname || nickname === name) return null;
+  return (
+    <p
+      className={
+        className ??
+        "text-[10px] font-black uppercase tracking-[0.28em] text-amber-300/80"
+      }
+    >
+      {nickname}
+    </p>
+  );
+}

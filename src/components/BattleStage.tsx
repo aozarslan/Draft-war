@@ -7,7 +7,10 @@ import { playerColor } from "@/lib/game/colors";
 import { getCategory } from "@/lib/game/categories";
 import { play } from "@/lib/client/sound";
 import { buildStage, elapsedFor } from "@/lib/render/stage";
+import { highlightsOf } from "@/lib/render/highlights";
+import { narrativeOf } from "@/lib/render/narrative";
 import { BattleCanvas } from "./BattleCanvas";
+import { BattleNarration } from "./BattleNarration";
 import { Panel, SectionTitle } from "./ui";
 
 const ICONS: Record<BattleLogEntry["kind"], string> = {
@@ -72,6 +75,14 @@ export function BattleStage({
         charactersById,
       }),
     [snapshot?.game?.id, snapshot?.players, result, startedAt, charactersById],
+  );
+
+  // The narration's cues. A pure function of the replay, so this is computed
+  // once per battle rather than per frame — and it is the same list the canvas
+  // draws from, not a second one written to match.
+  const cues = useMemo(
+    () => (stage ? narrativeOf(stage.replay, highlightsOf(stage.replay)) : []),
+    [stage],
   );
 
   // Respect the viewer's own setting. Read once — it is a preference, not a
@@ -199,11 +210,17 @@ export function BattleStage({
             reducedMotion={calmMotion}
             elapsedMs={() => elapsedFor(startedAt, serverNow(), duration)}
           />
+          <div className="px-3 pb-3">
+            <BattleNarration
+              cues={cues}
+              elapsedMs={() => elapsedFor(startedAt, serverNow(), duration)}
+            />
+          </div>
         </Panel>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-2">
+        <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1">
           {snapshot.players.map((p) => {
             const color = playerColor(p.colorIndex);
             const dmg = damageByTeam.get(p.id) ?? 0;

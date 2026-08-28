@@ -8,12 +8,14 @@ import { getCategory } from "@/lib/game/categories";
 import { playerColor } from "@/lib/game/colors";
 import { play } from "@/lib/client/sound";
 import { newActionId } from "@/lib/client/api";
+import { creditsOf } from "@/lib/client/economy";
 import { archetypeOf } from "@/lib/game/archetypes";
 import { allAxes } from "@/lib/game/categories";
 import { CharacterImage, ImageCredit } from "./CharacterImage";
 import { CharacterModal } from "./CharacterModal";
 import { PlayerRail } from "./PlayerRail";
-import { Countdown, EmptyState, Panel, SectionTitle } from "./ui";
+import { Countdown, EmptyState, Nickname, Panel, SectionTitle } from "./ui";
+import { nicknameFor } from "@/lib/game/characters";
 
 /** Staged reveal, timed off the server so every phone sees the same beat. */
 const REVEAL_STAGES = [
@@ -42,6 +44,9 @@ export function AuctionStage({
   const perPlayer = snapshot?.game?.charactersPerPlayer ?? 5;
   const minBid = snapshot?.room.config.minBid ?? 1;
   const slots = me ? Math.max(0, perPlayer - me.roster.length) : 0;
+  // A match spends a different wallet from a legacy draft, and the MAX button
+  // has to be computed against the one the server will actually check.
+  const credits = snapshot && me ? creditsOf(snapshot, me.id) : 0;
 
   // Reveal clock.
   useEffect(() => {
@@ -61,7 +66,7 @@ export function AuctionStage({
     if (!auction || !me) return { min: 0, max: 0 };
     return {
       min: minAllowedBid(auction.currentBid, auction.highBidderId !== null, minBid),
-      max: maxAllowedBid(me.credits, slots, minBid),
+      max: maxAllowedBid(credits, slots, minBid),
     };
   }, [auction, me, minBid, slots]);
 
@@ -168,9 +173,16 @@ export function AuctionStage({
           ) : null}
 
           {stage === "name" || stage === "power" ? (
-            <h2 className="headline animate-[slam_0.4s_both] text-[clamp(2rem,10vw,4rem)] leading-none">
-              {character.name}
-            </h2>
+            <div className="animate-[slam_0.4s_both]">
+              <Nickname
+                nickname={nicknameFor(character.id, character.name)}
+                name={character.name}
+                className="text-xs font-black uppercase tracking-[0.35em] text-amber-300/80"
+              />
+              <h2 className="headline text-[clamp(2rem,10vw,4rem)] leading-none">
+                {character.name}
+              </h2>
+            </div>
           ) : null}
 
           {stage === "power" ? (
@@ -217,7 +229,12 @@ export function AuctionStage({
                     {category.icon} {category.name} · character{" "}
                     {totalDrafted + 1} of {totalNeeded}
                   </p>
-                  <h2 className="headline mt-1 text-[clamp(1.4rem,5.5vw,2.4rem)] leading-none">
+                  <Nickname
+                    nickname={nicknameFor(character.id, character.name)}
+                    name={character.name}
+                    className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-amber-300/80"
+                  />
+                  <h2 className="headline text-[clamp(1.4rem,5.5vw,2.4rem)] leading-none">
                     {character.name}
                   </h2>
                   <p className="text-xs font-semibold text-white/45">
@@ -352,7 +369,7 @@ export function AuctionStage({
                 <span className="text-white/45">
                   Credits{" "}
                   <span className="text-base font-black text-white tabular-nums">
-                    {me?.credits ?? 0}
+                    {credits}
                   </span>
                 </span>
                 <span className="text-white/45">
