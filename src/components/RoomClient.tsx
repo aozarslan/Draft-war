@@ -15,6 +15,7 @@ import { TeamReview } from "./TeamReview";
 import { MapSelection } from "./MapSelection";
 import { EventReveal } from "./EventReveal";
 import { BattleStage } from "./BattleStage";
+import { MatchStage } from "./MatchStage";
 import { ResultsStage } from "./ResultsStage";
 import { ChatPanel } from "./ChatPanel";
 import { Leaderboard } from "./Leaderboard";
@@ -30,6 +31,7 @@ const PHASE_LABEL: Record<string, string> = {
   BATTLE: "Battle",
   RESULTS: "Results",
   FINISHED: "Finished",
+  MATCH: "Match",
 };
 
 export function RoomClient({ code }: { code: string }) {
@@ -152,6 +154,12 @@ export function RoomClient({ code }: { code: string }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <main className="min-w-0">
           {phase === "LOBBY" ? <Lobby store={store} /> : null}
+          {/* S8. Its own top-level branch rather than a mode inside another
+              phase: a match is a different shape of game, and every legacy
+              branch below is left exactly as it was. */}
+          {phase === "MATCH" ? (
+            <MatchStage store={store} charactersById={charactersById} />
+          ) : null}
           {phase === "CATEGORY" ? (
             <CategorySelection store={store} counts={reference.categoryCounts ?? {}} />
           ) : null}

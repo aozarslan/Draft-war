@@ -6,6 +6,16 @@ import { buildAuctionQueue, draftSize, queueSize, rosterSize } from "@/lib/game/
 import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
 import { CATEGORIES, LEGACY_CATEGORY_ID, resolveCategoryVote } from "@/lib/game/categories";
+import { pairRound, pairingInputFor } from "@/lib/game/matchmaking";
+import {
+  PHASE_SECONDS,
+  isMatchPhase,
+  minimumPoolFor,
+  nextPhaseOf,
+  roundQueueSize,
+  totalRoundsFor,
+  type MatchPhase,
+} from "@/lib/game/rounds";
 import type { BattleResult, Character, RoomConfig } from "@/lib/game/types";
 
 /**
@@ -83,6 +93,14 @@ export interface Snapshot {
     finalPrice: number | null;
     history: { playerId: string; amount: number; at: string }[];
   } | null;
+  /**
+   * The S8 match this room is playing, or null.
+   *
+   * Null on every legacy room and on every room between matches, which is what
+   * makes the whole milestone additive: a client that never sees a match
+   * renders exactly the game it rendered yesterday.
+   */
+  match: MatchSnapshot | null;
   mapVotes: Record<string, string>;
   categoryVotes: Record<string, string>;
   events: { type: string; payload: Record<string, unknown>; at: string }[];
@@ -92,6 +110,77 @@ export interface Snapshot {
     kind: string;
     body: string;
     at: string;
+  }[];
+}
+
+/** One player's state inside a match. Authored by the server, never by a client. */
+export interface MatchPlayerSnapshot {
+  playerId: string;
+  hp: number;
+  credits: number;
+  roundWins: number;
+  streak: number;
+  /** The round they went out in. Null while they are still playing. */
+  eliminatedAt: number | null;
+  modifiers: unknown[];
+}
+
+export interface MatchSnapshot {
+  id: string;
+  matchNo: number;
+  status: "ACTIVE" | "FINISHED" | "ABANDONED";
+  phase: MatchPhase;
+  /** 0 during MATCH_INTRO; 1..totalRounds once the match is running. */
+  roundNo: number;
+  totalRounds: number;
+  seed: string;
+  categoryIds: string[];
+  /** When the match's own clock advances this phase. Null when it does not. */
+  phaseDeadline: string | null;
+  /** When the current phase began. The manual-advance guard measures from it. */
+  phaseStartedAt: string | null;
+  championPlayerId: string | null;
+  /** The `games` row holding this round's draft, once it has been opened. */
+  roundGameId: string | null;
+  roundAuctionStatus: string | null;
+  /** Rounds 1-5 demand a purchase; from 6 it is a choice. Decided server-side. */
+  acquisitionRequired: boolean;
+  /** Seats this round is still waiting on. Server-derived, never inferred here. */
+  pendingPlayerIds: string[];
+  /** Every sale this match has made, in order. The consumed set and the record. */
+  acquisitions: {
+    roundNo: number;
+    playerId: string;
+    characterId: string;
+    price: number;
+    acquiredAt: string;
+  }[];
+  players: MatchPlayerSnapshot[];
+  /** Everything each player owns, accumulated across rounds. */
+  board: { playerId: string; characterId: string; zone: string; slot: number }[];
+  /** Who faces whom, this round and every round before it. */
+  matchups: {
+    id: string;
+    roundNo: number;
+    pairingIndex: number;
+    playerA: string;
+    /** Null for the odd seat. */
+    playerB: string | null;
+    kind: string;
+    /**
+     * The ratings that decided this pairing, and the reason it exists.
+     *
+     * Recorded rather than derived later: a rating is computed from the board
+     * as it stood at the time, and boards grow every round. Null on rows
+     * written before 0032.
+     */
+    ratingA: number | null;
+    ratingB: number | null;
+    reason: string | null;
+    startedAt: string | null;
+    settledAt: string | null;
+    winnerPlayerId: string | null;
+    damage: number | null;
   }[];
 }
 
@@ -118,6 +207,39 @@ export async function rpc(
   if (error) throw new EngineError("DB_ERROR", error.message, 500);
   return (data ?? { ok: true }) as RpcResult;
 }
+
+/**
+ * Calls an RPC that the database may not have yet, and returns null if so.
+ *
+ * Exactly one thing uses this, and the reason is a deploy-order hazard rather
+ * than laziness. Vercel ships the JavaScript and a human runs the migration;
+ * between those two moments the code is newer than the schema. `getSnapshot`
+ * is on the path of *every* request a room makes, so a hard failure there would
+ * take every live room down for the length of that window — including rooms
+ * playing the legacy game, which have nothing to do with S8.
+ *
+ * "The database has no matches table" and "this room has no match" are the same
+ * answer to the client, so answering it is correct rather than merely
+ * convenient. It is deliberately NOT used for anything that writes: a missing
+ * function on a write must fail loudly.
+ */
+async function rpcOptional(
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<RpcResult | null> {
+  const { data, error } = await supabaseAdmin().rpc(fn, args);
+  if (error) {
+    if (!warnedMissing.has(fn)) {
+      warnedMissing.add(fn);
+      console.warn(`[DRAFT WAR] ${fn} unavailable — treating as absent. ${error.message}`);
+    }
+    return null;
+  }
+  return (data ?? { ok: true }) as RpcResult;
+}
+
+/** Functions we have already complained about, so a room does not spam the log. */
+const warnedMissing = new Set<string>();
 
 /** Calls an RPC and throws on a rules failure so routes can stay thin. */
 export async function rpcOrThrow(
@@ -146,13 +268,243 @@ export async function roomIdByCode(code: string): Promise<string> {
   return data.id as string;
 }
 
+/**
+ * The room, plus its match if it has one.
+ *
+ * Two RPCs rather than one, issued in parallel so the round trip cost is one.
+ * `dw_snapshot` is the function every connected client polls; replacing it in
+ * the first milestone that touches match state would put every live room behind
+ * one untested statement. Merging the two is migration 0034's job, once the
+ * match shape has stopped moving.
+ */
 export async function getSnapshot(roomId: string): Promise<Snapshot> {
-  const snap = (await rpc("dw_snapshot", { p_room_id: roomId })) as unknown;
+  const [snap, match] = await Promise.all([
+    rpc("dw_snapshot", { p_room_id: roomId }) as Promise<unknown>,
+    rpcOptional("dw_match_snapshot", { p_room_id: roomId }),
+  ]);
+
   const typed = snap as Snapshot & { ok: boolean; message?: string };
   if (!typed.ok) {
     throw new EngineError("ROOM_NOT_FOUND", typed.message ?? "Room not found.", 404);
   }
+
+  const wrapper = match as { ok?: boolean; match?: MatchSnapshot | null };
+  typed.match = wrapper?.ok ? (wrapper.match ?? null) : null;
   return typed;
+}
+
+// ---------------------------------------------------------------------------
+// Matches (S8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a match on a room sitting in the lobby.
+ *
+ * The round count is derived from the table size rather than configured: two
+ * players play six rounds because with one possible pairing every round is the
+ * same duel. The pool check runs here, before anything is drawn, so a match
+ * that cannot be drafted is refused at the point somebody can still fix it —
+ * the same reason `startGame` checks it before the first character opens.
+ */
+export async function startMatch(
+  roomId: string,
+  playerId: string,
+): Promise<{ matchId: string; roundCount: number }> {
+  const snap = await getSnapshot(roomId);
+  const playerCount = Math.max(1, snap.players.length);
+  const roundCount = totalRoundsFor(playerCount);
+
+  const categories = (snap.room.config.categories ?? []).filter((id) =>
+    CATEGORIES.some((c) => c.id === id),
+  );
+
+  if (categories.length > 0) {
+    const pool = (await getDraftableCharacters()).filter((c) =>
+      categories.includes(c.categoryId),
+    );
+    const needed = minimumPoolFor(playerCount);
+    if (pool.length < needed) {
+      throw new EngineError(
+        "POOL_TOO_SMALL",
+        `A ${playerCount}-player match needs ${needed} characters and that selection has ${pool.length}. Mix in another category.`,
+        409,
+      );
+    }
+  }
+
+  const result = await rpcOrThrow("dw_start_match", {
+    p_room_id: roomId,
+    p_player_id: playerId,
+    p_seed: randomSeed(),
+    p_round_count: roundCount,
+    p_category_ids: categories,
+    p_intro_seconds: PHASE_SECONDS.MATCH_INTRO,
+  });
+
+  return { matchId: String(result.matchId), roundCount };
+}
+
+/**
+ * Moves a match on by exactly one phase.
+ *
+ * The destination is computed here and checked again in SQL against the same
+ * derivation, so neither the host's browser nor this process can name a phase
+ * the machine would not have chosen for itself. `playerId` is null when the
+ * clock is driving, which is how any client can advance an expired phase
+ * without being the host.
+ */
+export async function advanceMatchPhase(
+  roomId: string,
+  playerId: string | null,
+): Promise<{ phase: MatchPhase; roundNo: number; noop: boolean } | null> {
+  const snap = await getSnapshot(roomId);
+  const match = snap.match;
+  if (!match || match.status !== "ACTIVE") return null;
+  if (!isMatchPhase(match.phase)) {
+    throw new EngineError("UNKNOWN_PHASE", "That is not a phase of a match.", 409);
+  }
+
+  const to = nextPhaseOf(match.phase, match);
+  if (to === null) return null;
+
+  const result = await rpcOrThrow("dw_advance_match_phase", {
+    p_room_id: roomId,
+    p_player_id: playerId,
+    p_from: match.phase,
+    p_to: to,
+    p_deadline_seconds: PHASE_SECONDS[to],
+  });
+
+  const phase = (result.phase as MatchPhase) ?? to;
+  const roundNo = Number(result.roundNo ?? match.roundNo);
+  // Somebody else applied this step between our read and our write. The
+  // database is right either way — but reporting it as a success is not: the
+  // caller would believe it caused a transition it did not cause, and a UI
+  // built on that belief shows a phase that has already moved on.
+  const noop = result.noop === true;
+
+  // Arriving at a round's draft opens it. Done here rather than in SQL because
+  // the queue is selected in TypeScript — the same place, and for the same
+  // reason, as the legacy draft's queue.
+  if (phase === "MATCHMAKING" && !noop) {
+    try {
+      await pairMatchRound(roomId);
+    } catch (err) {
+      // As with the draft below: the phase moved, and the next tick reports
+      // NEEDS_ROUND_PAIRING for a round that has none. The phase guard will not
+      // let the match leave MATCHMAKING unpaired, so this cannot skip a round.
+      console.error("[DRAFT WAR] round pairing failed; the tick will retry", err);
+    }
+  }
+
+  if (phase === "AUCTION" && !noop) {
+    try {
+      await startRoundAuction(roomId);
+    } catch (err) {
+      // The phase has already moved, and the draft is recoverable: the next
+      // tick sees a round at AUCTION with no game and reports
+      // NEEDS_ROUND_AUCTION. Failing the host's request here would report an
+      // error about a transition that did succeed, and invite them to tap
+      // again — which the dwell guard would then refuse.
+      console.error("[DRAFT WAR] round auction did not open; the tick will retry", err);
+    }
+  }
+
+  return { phase, roundNo, noop };
+}
+
+/**
+ * Opens the draft for the round a match is currently on.
+ *
+ * The pool is the match's categories minus everything the match has already
+ * sold, so a character can be won once and never appears again — enforced
+ * twice over, here by exclusion and in the database by
+ * `match_acquisitions (match_id, character_id)`. A filter is a good first line
+ * and a poor only line.
+ *
+ * Selection is deterministic in `${match.seed}:${round}`, so the same match on
+ * the same round always opens with the same characters. What happens to them
+ * is decided by the people bidding.
+ */
+export async function startRoundAuction(roomId: string): Promise<void> {
+  const snap = await getSnapshot(roomId);
+  const match = snap.match;
+  if (!match || match.status !== "ACTIVE") return;
+  if (match.phase !== "AUCTION") return;
+  if (match.roundGameId) return;
+
+  const consumed = new Set(match.acquisitions.map((a) => a.characterId));
+  const categories = match.categoryIds.length ? match.categoryIds : [LEGACY_CATEGORY_ID];
+
+  const pool = (await getDraftableCharacters()).filter(
+    (c) => categories.includes(c.categoryId) && !consumed.has(c.id),
+  );
+
+  if (pool.length === 0) {
+    throw new EngineError(
+      "POOL_EXHAUSTED",
+      "This match has drafted every character in its categories.",
+      409,
+    );
+  }
+
+  const live = match.players.filter((p) => p.eliminatedAt === null).length;
+  const seed = `${match.seed}:${match.roundNo}`;
+  const queue = buildAuctionQueue(pool, snap.room.config, seed, roundQueueSize(live));
+
+  await rpcOrThrow("dw_start_round_auction", {
+    p_room_id: roomId,
+    p_seed: seed,
+    p_queue: queue,
+  });
+}
+
+/**
+ * Decides and stores who fights whom this round.
+ *
+ * The decision is `pairRound`'s — a pure function with its own test and
+ * mutation suite — and this is the plumbing around it: gather the seats and the
+ * history the server already holds, hand them over, write the answer once.
+ *
+ * Idempotent twice over. `dw_pair_round` refuses a round that already has
+ * pairings, and the pairing itself is deterministic, so a retry that somehow
+ * got past that would be writing the same rows anyway.
+ */
+export async function pairMatchRound(roomId: string): Promise<void> {
+  const snap = await getSnapshot(roomId);
+  if (!snap.match) return;
+
+  const characters = await getCharacters();
+  const powerOf = new Map(characters.map((c) => [c.id, c.gamePower]));
+  const seatOf = new Map(snap.players.map((p) => [p.id, p.seat]));
+
+  // Whether to pair at all, and what to pair with, are both decided by a pure
+  // function that tests can execute — see `pairingInputFor`.
+  const question = pairingInputFor(
+    snap.match,
+    (playerId) => seatOf.get(playerId) ?? 0,
+    (characterId) => powerOf.get(characterId),
+  );
+  if (!question) return;
+
+  const pairings = pairRound(question);
+  if (pairings.length === 0) return;
+
+  await rpcOrThrow("dw_pair_round", {
+    p_room_id: roomId,
+    p_pairings: pairings.map((p) => ({
+      playerA: p.playerA,
+      playerB: p.playerB,
+      kind: p.kind,
+      ratingA: p.ratingA,
+      ratingB: p.ratingB,
+      reason: p.reason,
+    })),
+  });
+}
+
+export async function abandonMatch(roomId: string, playerId: string): Promise<void> {
+  await rpcOrThrow("dw_abandon_match", { p_room_id: roomId, p_player_id: playerId });
 }
 
 // ---------------------------------------------------------------------------
@@ -584,8 +936,18 @@ export async function runBattle(roomId: string): Promise<void> {
  * state because each individual step is guarded in SQL.
  */
 export async function tickRoom(roomId: string): Promise<Snapshot> {
-  const tick = await rpc("dw_tick", { p_room_id: roomId });
-  const actions = (tick.actions as string[] | undefined) ?? [];
+  // Two clocks, both idempotent, both callable by any client. The match clock
+  // is a separate function rather than a branch inside `dw_tick` so the legacy
+  // path is byte-for-byte the one that has been running in production.
+  const [tick, matchTick] = await Promise.all([
+    rpc("dw_tick", { p_room_id: roomId }),
+    rpcOptional("dw_match_tick", { p_room_id: roomId }),
+  ]);
+
+  const actions = [
+    ...((tick.actions as string[] | undefined) ?? []),
+    ...((matchTick?.actions as string[] | undefined) ?? []),
+  ];
 
   for (const action of actions) {
     try {
@@ -594,6 +956,12 @@ export async function tickRoom(roomId: string): Promise<Snapshot> {
       else if (action === "NEEDS_MAP_SELECTION") await beginMapSelection(roomId, null);
       else if (action === "NEEDS_MAP_LOCK") await lockBattlefield(roomId);
       else if (action === "NEEDS_BATTLE") await runBattle(roomId);
+      else if (action === "MATCH_PHASE_EXPIRED") await advanceMatchPhase(roomId, null);
+      else if (action === "NEEDS_ROUND_AUCTION") await startRoundAuction(roomId);
+      // The draft closed itself. The phase move belongs here rather than in
+      // SQL so the deadline table stays in one file.
+      else if (action === "ROUND_AUCTION_COMPLETE") await advanceMatchPhase(roomId, null);
+      else if (action === "NEEDS_ROUND_PAIRING") await pairMatchRound(roomId);
     } catch (err) {
       // A losing race is expected here (another client got there first).
       if (!(err instanceof EngineError)) throw err;

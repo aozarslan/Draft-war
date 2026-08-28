@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   EngineError,
+  abandonMatch,
+  advanceMatchPhase,
   beginCategorySelection,
   beginMapSelection,
   lockCategory,
@@ -9,6 +11,7 @@ import {
   resolveCategoryAndStart,
   rpcOrThrow,
   runBattle,
+  startMatch,
 } from "@/lib/server/engine";
 import { authenticate, errorResponse, isNextResponse } from "@/lib/server/session";
 import { CATEGORIES } from "@/lib/game/categories";
@@ -27,6 +30,15 @@ function actionId(raw: unknown): string | null {
 }
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The largest number that may be called a bid.
+ *
+ * Well inside a Postgres `int`, and vastly above any reachable balance — the
+ * point is not to constrain play but to keep an absurd number from becoming a
+ * database error instead of a rejected request.
+ */
+const MAX_BID = 1_000_000;
 
 /**
  * POST /api/rooms/:code/action
@@ -50,7 +62,14 @@ type Action =
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
   | { type: "PLAY_AGAIN" }
-  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" };
+  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" }
+  // S8. Note what is absent: none of these carries a phase, a round number, a
+  // matchup, an HP value or a reward. The client sends an intention and the
+  // server derives every consequence — a match action that named its own
+  // destination phase would be a client that can end a match four rounds early.
+  | { type: "START_MATCH" }
+  | { type: "ADVANCE_MATCH" }
+  | { type: "ABANDON_MATCH" };
 
 export async function POST(
   request: Request,
@@ -61,7 +80,15 @@ export async function POST(
     const auth = await authenticate(request, code);
     if (isNextResponse(auth)) return auth;
 
-    const action = (await request.json()) as Action;
+    // Malformed JSON is the caller's mistake, not ours. Without this it
+    // reaches the outer catch and is reported as a 500, which says the server
+    // broke when in fact it refused.
+    let action: Action;
+    try {
+      action = (await request.json()) as Action;
+    } catch {
+      return errorResponse("BAD_REQUEST", "That request could not be read.", 400);
+    }
     const { playerId, roomId, isHost } = auth;
 
     switch (action.type) {
@@ -144,7 +171,11 @@ export async function POST(
 
       case "BID": {
         const amount = Number(action.amount);
-        if (!Number.isInteger(amount) || amount < 1) {
+        // Bounded here rather than at the database. `credits` is a Postgres
+        // `int`, so a bid past 2^31 raises an overflow deep inside the bid
+        // function and surfaces as a 500 — a hostile number reported as our
+        // fault. No legitimate bid is anywhere near this.
+        if (!Number.isInteger(amount) || amount < 1 || amount > MAX_BID) {
           return errorResponse("BID_TOO_LOW", "That is not a valid bid.");
         }
         // The action id makes a retry safe: a double tap, or the same POST
@@ -240,6 +271,41 @@ export async function POST(
           p_mode: action.mode ?? "SAME",
         });
         return NextResponse.json(result);
+      }
+
+      // ---- S8 match backbone ------------------------------------------
+      case "START_MATCH": {
+        if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
+        const result = await startMatch(roomId, playerId);
+        return NextResponse.json({ ok: true, ...result });
+      }
+
+      // The host nudging a phase along. Deliberately parameterless: the server
+      // reads the current phase and derives the only legal successor, so this
+      // is "next", never "go to X".
+      case "ADVANCE_MATCH": {
+        if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
+        const result = await advanceMatchPhase(roomId, playerId);
+        if (!result) return errorResponse("NO_MATCH", "Nothing to advance right now.");
+        // A request that lost the race is told it lost. The database already
+        // refuses to advance twice, so this changes no state — but a caller
+        // that is told "ok" for a transition somebody else made will believe
+        // its own stale screen, which is the whole failure this guard exists
+        // to prevent. The clock path passes playerId = null and ignores it.
+        if (result.noop) {
+          return errorResponse(
+            "CONCURRENT_PHASE_ADVANCE",
+            "The phase already moved — refreshing.",
+            409,
+          );
+        }
+        return NextResponse.json({ ok: true, phase: result.phase, roundNo: result.roundNo });
+      }
+
+      case "ABANDON_MATCH": {
+        if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
+        await abandonMatch(roomId, playerId);
+        return NextResponse.json({ ok: true });
       }
 
       case "PLAY_AGAIN": {

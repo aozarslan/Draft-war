@@ -5,6 +5,7 @@ import type { RoomStore } from "@/lib/client/useRoom";
 import { playerColor } from "@/lib/game/colors";
 import { draftSize, rosterSize } from "@/lib/game/auction";
 import { CATEGORIES_BY_ID } from "@/lib/game/categories";
+import { totalRoundsFor } from "@/lib/game/rounds";
 import { play } from "@/lib/client/sound";
 import { Panel, SectionTitle } from "./ui";
 
@@ -67,6 +68,19 @@ export function Lobby({ store }: { store: RoomStore }) {
     await act({ type: "START", mode });
     setBusy(false);
   }
+
+  /**
+   * S8: the round-based match, beside the classic single-battle game rather
+   * than replacing it. The round count is not offered as a choice — the server
+   * derives it from the table size, so the button only says what will happen.
+   */
+  async function startMatch() {
+    setBusy(true);
+    await act({ type: "START_MATCH" });
+    setBusy(false);
+  }
+
+  const matchRounds = totalRoundsFor(Math.max(players.length, 1));
 
   return (
     <div className="space-y-4">
@@ -322,6 +336,16 @@ export function Lobby({ store }: { store: RoomStore }) {
                 : !everyoneReady
                   ? "Waiting for everyone"
                   : `Start · ${draftTotal} characters`}
+          </button>
+        ) : null}
+
+        {me?.isHost ? (
+          <button
+            className="btn w-full"
+            disabled={busy || !everyoneReady || !enoughPlayers}
+            onClick={startMatch}
+          >
+            {`⚔️ Start match · ${matchRounds} rounds`}
           </button>
         ) : (
           <p className="text-center text-xs font-semibold text-white/40">

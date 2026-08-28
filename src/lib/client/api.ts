@@ -98,7 +98,10 @@ export type ClientAction =
   | { type: "VOTE_MAP"; mapId: string }
   | { type: "ADVANCE" }
   | { type: "PLAY_AGAIN" }
-  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" };
+  | { type: "REMATCH"; mode?: "SAME" | "NEW" | "RANDOM" }
+  | { type: "START_MATCH" }
+  | { type: "ADVANCE_MATCH" }
+  | { type: "ABANDON_MATCH" };
 
 /**
  * A fresh id for one player intention.

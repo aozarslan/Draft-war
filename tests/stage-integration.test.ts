@@ -348,6 +348,10 @@ describe("the client has no way to send a result", () => {
       "HEARTBEAT", "READY", "START", "PICK_CATEGORY", "SET_MAX_PLAYERS",
       "VOTE_CATEGORY", "BID", "PASS", "SET_FORMATION", "CHAT", "REACTION",
       "VOTE_MAP", "ADVANCE", "REMATCH", "PLAY_AGAIN",
+      // S8 match backbone. All three are verbs with no arguments — see
+      // "a client can ask, never decide" in tests/rounds.test.ts, which holds
+      // them to carrying no phase, round, HP, damage or reward.
+      "START_MATCH", "ADVANCE_MATCH", "ABANDON_MATCH",
       // ADVANCE's inner phase switch.
       "CATEGORY", "TEAM_REVIEW", "MAP_SELECTION", "EVENT", "BATTLE", "RESULTS",
     ]);
