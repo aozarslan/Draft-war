@@ -80,7 +80,13 @@ export function Lobby({ store }: { store: RoomStore }) {
     setBusy(false);
   }
 
-  const matchRounds = totalRoundsFor(Math.max(players.length, 1));
+  // Stated with the seat count it is derived from, not on its own. Six rounds
+  // is right for two players and wrong for three, and the difference between
+  // them is whether somebody is still typing their nickname on the join screen
+  // — which the host cannot see. A bare "6 rounds" reads as a rule; "2 players
+  // · 6 rounds" reads as a fact about the room.
+  const seatedPlayers = players.length;
+  const matchRounds = totalRoundsFor(Math.max(seatedPlayers, 1));
 
   return (
     <div className="space-y-4">
@@ -345,7 +351,7 @@ export function Lobby({ store }: { store: RoomStore }) {
             disabled={busy || !everyoneReady || !enoughPlayers}
             onClick={startMatch}
           >
-            {`⚔️ Start match · ${matchRounds} rounds`}
+            {`⚔️ Start match · ${seatedPlayers} player${seatedPlayers === 1 ? "" : "s"} · ${matchRounds} rounds`}
           </button>
         ) : (
           <p className="text-center text-xs font-semibold text-white/40">

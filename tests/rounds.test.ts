@@ -486,6 +486,31 @@ describe("Postgres runs the same machine", () => {
 // Server authority, checked where it can actually be broken
 // ---------------------------------------------------------------------------
 
+describe("the lobby says what it is about to start", () => {
+  const lobby = readFileSync(join(ROOT, "src", "components", "Lobby.tsx"), "utf8");
+
+  it("names the seat count the round count comes from", () => {
+    // Reported from a live room: three people present, the button offering six
+    // rounds. The code was right — only two of them had finished joining, and
+    // six is correct for two. What was wrong is that the button stated a rule
+    // it had derived from a number it did not show, so a host could not tell a
+    // two-player match from a third player still typing their nickname.
+    const label = lobby.match(/\{`⚔️ Start match[^`]*`\}/)?.[0];
+    expect(label, "the start-match label is missing").toBeTruthy();
+    expect(label).toContain("seatedPlayers");
+    expect(label).toContain("matchRounds");
+  });
+
+  it("counts seats, not readiness or room capacity", () => {
+    expect(lobby).toMatch(/const seatedPlayers = players\.length;/);
+    expect(lobby).toMatch(/totalRoundsFor\(Math\.max\(seatedPlayers, 1\)\)/);
+    // maxPlayers is what the room *could* hold; it must not decide the length.
+    const derivation = lobby.match(/const matchRounds = [^;]+;/)?.[0] ?? "";
+    expect(derivation).not.toContain("maxPlayers");
+    expect(derivation).not.toContain("isReady");
+  });
+});
+
 describe("the code can ship before the schema does", () => {
   /**
    * Vercel deploys the JavaScript; a person runs the migration. Between those
