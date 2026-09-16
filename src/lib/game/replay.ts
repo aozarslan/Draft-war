@@ -245,6 +245,17 @@ function isEmphatic(kind: ReplayEvent["kind"]): boolean {
   );
 }
 
+export interface ToReplayOptions {
+  /**
+   * Compress or stretch the replay to this many milliseconds.
+   *
+   * All `atMs` values are scaled linearly so the replay fits within the
+   * override window. The simulation itself is not re-run — only the playback
+   * timeline changes. Absent means "use the result's own durationMs".
+   */
+  durationOverrideMs?: number;
+}
+
 /**
  * Projects a stored battle result into a replay.
  *
@@ -252,8 +263,19 @@ function isEmphatic(kind: ReplayEvent["kind"]): boolean {
  *                it. Not mutated.
  * @param context Names and formations, which live on the player rows rather
  *                than in the result.
+ * @param opts    Optional playback options (e.g. duration override for S8).
  */
-export function toReplay(result: ProjectableResult, context: ReplayContext): Replay {
+export function toReplay(
+  result: ProjectableResult,
+  context: ReplayContext,
+  opts?: ToReplayOptions,
+): Replay {
+  const { durationOverrideMs } = opts ?? {};
+  const scale =
+    durationOverrideMs != null
+      ? durationOverrideMs / Math.max(1, result.durationMs)
+      : 1;
+
   const byPlayer = new Map(context.players.map((p) => [p.playerId, p]));
 
   // A battle is renderable with health bars only if the engine reported the
@@ -298,7 +320,7 @@ export function toReplay(result: ProjectableResult, context: ReplayContext): Rep
   }));
 
   const events: ReplayEvent[] = result.log.map((entry) => ({
-    atMs: entry.atMs,
+    atMs: Math.round(entry.atMs * scale),
     kind: entry.kind,
     text: entry.text,
     ...(entry.actorId ? { actorId: entry.actorId } : {}),
@@ -337,7 +359,7 @@ export function toReplay(result: ProjectableResult, context: ReplayContext): Rep
     mapId: result.mapId,
     eventId: result.eventId,
     categoryIds: [...result.categoryIds],
-    durationMs: result.durationMs,
+    durationMs: durationOverrideMs ?? result.durationMs,
     teams,
     combatants,
     // Spawns first, then the battle. Both at their own `atMs`, so playback

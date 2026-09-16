@@ -9,6 +9,7 @@ import {
   canShowHealth,
   toReplay,
   type ReplayContext,
+  type ToReplayOptions,
 } from "../src/lib/game/replay";
 import type { BattleResult } from "../src/lib/game/types";
 
@@ -256,5 +257,50 @@ describe("battles recorded before V5", () => {
   it("are told apart from current ones", () => {
     expect(canShowHealth(toReplay(run("old-4"), context))).toBe(true);
     expect(toReplay(run("old-4"), context).replayVersion).toBe(REPLAY_VERSION);
+  });
+});
+
+describe("durationOverrideMs compresses the timeline", () => {
+  const OVERRIDE = 18_000;
+  const opts: ToReplayOptions = { durationOverrideMs: OVERRIDE };
+
+  it("sets durationMs to the override value", () => {
+    const replay = toReplay(run("override-1"), context, opts);
+    expect(replay.durationMs).toBe(OVERRIDE);
+  });
+
+  it("clamps every event atMs within the override window", () => {
+    const replay = toReplay(run("override-2"), context, opts);
+    for (const e of replay.events) {
+      expect(e.atMs).toBeGreaterThanOrEqual(0);
+      expect(e.atMs).toBeLessThanOrEqual(OVERRIDE);
+    }
+  });
+
+  it("preserves event order after scaling", () => {
+    const replay = toReplay(run("override-3"), context, opts);
+    const times = replay.events.map((e) => e.atMs);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+  });
+
+  it("winner and other game facts are unchanged", () => {
+    const result = run("override-4");
+    const replay = toReplay(result, context, opts);
+    expect(replay.winnerPlayerId).toBe(result.winnerPlayerId);
+    expect(replay.events.filter((e) => e.kind === "ELIMINATION").length).toBe(
+      result.log.filter((e) => e.kind === "ELIMINATION").length,
+    );
+  });
+
+  it("leaves durationMs untouched when no override is given", () => {
+    const result = run("override-5");
+    expect(toReplay(result, context).durationMs).toBe(result.durationMs);
+  });
+
+  it("does not mutate the source result", () => {
+    const result = run("override-6");
+    const before = structuredClone(result);
+    toReplay(result, context, opts);
+    expect(result).toEqual(before);
   });
 });

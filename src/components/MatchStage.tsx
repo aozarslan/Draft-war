@@ -16,6 +16,7 @@ import { AuctionStage } from "./AuctionStage";
 import { MatchBoard } from "./MatchBoard";
 import { MatchupReveal } from "./MatchupReveal";
 import { MatchResults } from "./MatchResults";
+import { RoundCombatStage } from "./RoundCombatStage";
 import { Countdown, Panel } from "./ui";
 
 /**
@@ -183,6 +184,8 @@ export function MatchStage({
         // `creditsOf`, which returns match credits while a match is live, so
         // the MAX button is computed against the balance the server will check.
         <AuctionStage store={store} charactersById={charactersById} />
+      ) : !finished && (phase === "COMBAT" || phase === "FINAL_COMBAT") ? (
+        <RoundCombatStage store={store} charactersById={charactersById} />
       ) : !finished && me ? (
         <MatchBoard snapshot={snapshot!} charactersById={charactersById} playerId={me.id} />
       ) : null}

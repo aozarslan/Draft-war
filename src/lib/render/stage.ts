@@ -15,7 +15,7 @@
  * identities are a presentation detail.
  */
 
-import { toReplay, type ProjectableResult, type Replay } from "@/lib/game/replay";
+import { toReplay, type ProjectableResult, type Replay, type ToReplayOptions } from "@/lib/game/replay";
 import type { Character } from "@/lib/game/types";
 import { artFor } from "./archetypes";
 import type { CharacterArt } from "./assets";
@@ -60,7 +60,7 @@ export interface Stage {
  * simulated yet: a canvas drawing an empty replay is worse than the loading
  * state the game already shows.
  */
-export function buildStage(input: StageInput): Stage | null {
+export function buildStage(input: StageInput, opts?: ToReplayOptions): Stage | null {
   // Deliberately no clock here. Whether a battle has started is the caller's
   // question — a live room asks it of `battleStartedAt`, a finished match does
   // not need to ask it at all — and a stage that refused to build without a
@@ -68,14 +68,18 @@ export function buildStage(input: StageInput): Stage | null {
   if (!input.result) return null;
   if (input.result.combatants.length === 0) return null;
 
-  const replay = toReplay(input.result, {
-    battleId: input.battleId,
-    players: input.players.map((p) => ({
-      playerId: p.id,
-      nickname: p.nickname,
-      formation: p.formation,
-    })),
-  });
+  const replay = toReplay(
+    input.result,
+    {
+      battleId: input.battleId,
+      players: input.players.map((p) => ({
+        playerId: p.id,
+        nickname: p.nickname,
+        formation: p.formation,
+      })),
+    },
+    opts,
+  );
 
   // Identity, then the per-match separation: two characters that resolve to
   // the same look are fine in a catalogue and not fine standing side by side.

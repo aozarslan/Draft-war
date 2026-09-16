@@ -73,6 +73,14 @@ export interface SceneCombatant {
   /** Arena coordinates. Presentation only — the simulation has no space. */
   x: number;
   y: number;
+  /**
+   * 0..1 through the walk toward the target (0 = at home, 1 = apex of approach).
+   *
+   * Non-zero for `WALK_LEAD_MS` before a strike through `WALK_RETURN_MS` after.
+   * The canvas uses this to switch between idle and walk sprite sheets; the `x`
+   * and `y` coordinates already incorporate the displacement.
+   */
+  walkProgress: number;
   /** 0..1, or null when the replay cannot show health honestly. */
   health: number | null;
   /**
@@ -244,6 +252,19 @@ export interface Scene {
   upset: boolean;
 }
 
+/**
+ * TFT-style walk timings.
+ *
+ * LEAD:     How early the actor starts walking toward the target before impact.
+ * RETURN:   How long it takes to walk back to the home slot after impact.
+ * FRAC:     What fraction of the gap between home and target the actor covers.
+ *           0.65 = 65 % of the distance, so the strike lands near the target
+ *           without the actor teleporting onto them.
+ */
+const WALK_LEAD_MS = 300;
+const WALK_RETURN_MS = 200;
+const WALK_FRAC = 0.50;
+
 const EFFECT_MS = 420;
 const BANNER_MS = 1600;
 const CINEMATIC_MS = 1100;
@@ -331,6 +352,11 @@ type Working = SceneCombatant & {
   /** Where this combatant is acting, so the lunge points at something. */
   _aimX: number | null;
   _aimY: number | null;
+  /** Slot position: the place this combatant rests when not walking. */
+  _homeX: number;
+  _homeY: number;
+  /** The atMs of the most recent attack event, for walk timing. */
+  _attackAtMs: number | null;
 };
 
 /**
@@ -360,6 +386,7 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
       teamId: c.teamId,
       x,
       y,
+      walkProgress: 0,
       health: showHealth ? 1 : null,
       healthTrail: showHealth ? 1 : null,
       hp: maxHp,
@@ -379,6 +406,9 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
       _hitAt: -Infinity,
       _aimX: null,
       _aimY: null,
+      _homeX: x,
+      _homeY: y,
+      _attackAtMs: null,
     };
   });
 
@@ -468,6 +498,46 @@ export function sceneAt(replay: Replay, elapsedMs: number): Scene {
       c.healthTrail = clamp01(
         (hitAge < 0 ? from : from + (c.hp - from) * t) / c.maxHp,
       );
+    }
+
+    // Walk displacement: actor steps toward its target during the attack window
+    // and snaps back after contact. Dead characters don't walk.
+    if (c.alive && c._attackAtMs !== null && c._aimX !== null && c._aimY !== null) {
+      const contactAt = c._attackAtMs;
+      const walkStart = contactAt - WALK_LEAD_MS;
+      const walkEnd = contactAt + WALK_RETURN_MS;
+      const raw =
+        now >= walkStart && now < contactAt
+          ? (now - walkStart) / WALK_LEAD_MS
+          : now >= contactAt && now < walkEnd
+            ? 1 - (now - contactAt) / WALK_RETURN_MS
+            : 0;
+      const wt = clamp01(raw);
+      c.walkProgress = wt;
+      if (wt > 0) {
+        c.x = c._homeX + (c._aimX - c._homeX) * wt * WALK_FRAC;
+        c.y = c._homeY + (c._aimY - c._homeY) * wt * WALK_FRAC;
+      } else {
+        c.x = c._homeX;
+        c.y = c._homeY;
+      }
+    } else {
+      c.walkProgress = 0;
+      c.x = c._homeX;
+      c.y = c._homeY;
+    }
+
+    // Effects were placed at the pre-walk position. Patch them now that the
+    // actor's visual position is final, so the strike line and cast glow
+    // originate from where the sprite actually stands.
+    for (const eff of effects) {
+      if (eff.actorId !== c.characterId) continue;
+      if (eff.fromX !== null) eff.fromX = c.x;
+      if (eff.fromY !== null) eff.fromY = c.y;
+      if (eff.kind === "CAST") {
+        eff.x = c.x;
+        eff.y = c.y;
+      }
     }
   }
 
@@ -721,6 +791,7 @@ function assignNumberSlots(effects: SceneEffect[]): void {
 function strip(c: Working): SceneCombatant {
   const {
     _animAt: _a, _diedAt: _d, _prevHp: _p, _hitAt: _h, _aimX: _x, _aimY: _y,
+    _homeX: _hx, _homeY: _hy, _attackAtMs: _atk,
     ...rest
   } = c;
   return rest;
@@ -748,6 +819,8 @@ function applyEvent(
     if (now >= startAt && now - startAt < ANIMATION_MS[event.animation]) {
       actor.animation = event.animation;
       actor._animAt = startAt;
+      // Only physical strikes trigger walk displacement; casts stay planted.
+      if (event.animation === "ATTACK") actor._attackAtMs = event.atMs;
       if (target) {
         actor._aimX = target.x;
         actor._aimY = target.y;
