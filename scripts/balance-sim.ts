@@ -1,17 +1,18 @@
 /**
  * scripts/balance-sim.ts
- * Monte Carlo balance simulator — 100 matches (50×3-player + 50×5-player).
+ * Monte Carlo balance simulator — 100 matches per (HP × playerCount) combination.
+ * Ghost fights are active: odd-seat rounds fight a deterministic copy of a live
+ * player's board instead of getting a free bye.
  *
- * Bot strategy: always buy the highest-game_power character not yet owned.
- * Deterministic: seed = "balance-3p-NNN" / "balance-5p-NNN".
+ * HP ∈ {50, 60, 70, 80} × players ∈ {2, 3, 4, 5} = 16 combinations × 100 matches.
  *
  * Run with:  npx tsx scripts/balance-sim.ts
  */
 
+import { createRng } from "../src/lib/game/rng";
 import { CHARACTERS } from "../src/lib/game/characters";
 import { computeAxisBands, simulateBattle } from "../src/lib/game/battle";
 import {
-  STARTING_HP,
   BOARD_CAPACITY,
   STANDARD_MATCH_ROUNDS,
   clampHp,
@@ -21,24 +22,32 @@ import {
   fightingBoardOf,
   buildDuelInput,
   outcomeOf,
+  ghostSeedFor,
+  GHOST_PLAYER_PREFIX,
   type BoardSlot,
   type CombatContext,
 } from "../src/lib/game/combat";
 import { pairRound, type PairRoundInput } from "../src/lib/game/matchmaking";
 
 // ---------------------------------------------------------------------------
-// Constants
+// Sweep parameters
 // ---------------------------------------------------------------------------
 
+const HP_VALUES = [50, 60, 70, 80] as const;
+const PLAYER_COUNTS = [2, 3, 4, 5] as const;
 const TOTAL_ROUNDS = STANDARD_MATCH_ROUNDS; // 8
-const MATCH_COUNT_EACH = 50; // per player-count variant
+const MATCH_COUNT = 100; // per combination
+
+// ---------------------------------------------------------------------------
+// Category sets
+// ---------------------------------------------------------------------------
 
 const CATEGORY_SETS: Record<number, string[]> = {
+  2: ["marvel", "dc"],
   3: ["marvel", "dc", "football"],
+  4: ["marvel", "dc", "football", "basketball"],
   5: ["marvel", "dc", "football", "basketball", "animals"],
 };
-const CATEGORY_IDS_3 = CATEGORY_SETS[3];
-const CATEGORY_IDS_5 = CATEGORY_SETS[5];
 
 // ---------------------------------------------------------------------------
 // Pre-computed pools (sorted DESC by game_power — bot always grabs index 0)
@@ -47,15 +56,15 @@ const CATEGORY_IDS_5 = CATEGORY_SETS[5];
 const BANDS = computeAxisBands(CHARACTERS);
 const BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 
-// Pool per category, sorted highest game_power first.
-// The bot pops from the front of its pool each round.
 const POOL_BY_CAT: Record<string, string[]> = {};
-for (const cat of Object.values(CATEGORY_SETS).flat()) {
-  if (POOL_BY_CAT[cat]) continue;
-  POOL_BY_CAT[cat] = CHARACTERS
-    .filter((c) => c.categoryId === cat)
-    .sort((a, b) => b.gamePower - a.gamePower || a.id.localeCompare(b.id))
-    .map((c) => c.id);
+for (const cats of Object.values(CATEGORY_SETS)) {
+  for (const cat of cats) {
+    if (POOL_BY_CAT[cat]) continue;
+    POOL_BY_CAT[cat] = CHARACTERS
+      .filter((c) => c.categoryId === cat)
+      .sort((a, b) => b.gamePower - a.gamePower || a.id.localeCompare(b.id))
+      .map((c) => c.id);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +79,6 @@ interface PlayerSim {
   hp: number;
   eliminatedAt: number | null;
   roundWins: number;
-  /** Next index into POOL_BY_CAT[category] to buy. */
   buyIndex: number;
 }
 
@@ -82,26 +90,21 @@ interface DamageEvent {
 interface MatchResult {
   seed: string;
   playerCount: number;
+  startingHp: number;
   endedAtRound: number;
   earlyFinish: boolean;
-  /** HP of the match champion (highest HP among survivors). */
   winnerFinalHp: number;
-  /** How many players ended with exactly STARTING_HP (never took damage). */
   noDamageCount: number;
-  /** Was the R2 HP leader the eventual match champion? null if 1 survived to R2. */
   r2LeaderWon: boolean | null;
-  /** All damage events across the match, for per-round stats. */
   damageEvents: DamageEvent[];
-  /** Byes granted per round (for 3-player: usually 1 per round). */
-  byesPerRound: number[];
-  /** Final HP of each player. */
   finalHps: number[];
-  /** Number of eliminations that occurred. */
   elimCount: number;
+  /** Round when the first elimination happened, or null if none. */
+  firstEliminationRound: number | null;
 }
 
 // ---------------------------------------------------------------------------
-// Board helpers (mirrors dw_record_acquisition re-rank logic)
+// Board helpers
 // ---------------------------------------------------------------------------
 
 function rerankBoard(slots: BoardSlot[], playerId: string): void {
@@ -134,46 +137,57 @@ function fightingBoard(slots: BoardSlot[], playerId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Ghost player selection (mirrors combat.ts pickGhostPlayerId, not exported)
+// ---------------------------------------------------------------------------
+
+function pickGhost(
+  matchSeed: string,
+  roundNo: number,
+  pairingIndex: number,
+  candidates: string[],
+): string {
+  const sorted = [...candidates].sort();
+  return createRng(ghostSeedFor(matchSeed, roundNo, pairingIndex)).shuffle(sorted)[0];
+}
+
+// ---------------------------------------------------------------------------
 // Single match simulation
 // ---------------------------------------------------------------------------
 
-function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
+function simulateMatch(
+  playerCount: 2 | 3 | 4 | 5,
+  seed: string,
+  startingHp: number,
+): MatchResult {
   const categorySet = CATEGORY_SETS[playerCount];
-  const categoryIds = playerCount === 3 ? CATEGORY_IDS_3 : CATEGORY_IDS_5;
+  const categoryIds = categorySet;
 
   const players: PlayerSim[] = categorySet.map((cat, i) => ({
     id: `p${i}`,
     nickname: `P${i}(${cat})`,
     category: cat,
     seat: i,
-    hp: STARTING_HP,
+    hp: startingHp,
     eliminatedAt: null,
     roundWins: 0,
     buyIndex: 0,
   }));
 
-  // Track which indices have been used per category so different players
-  // using the same category don't duplicate picks. (In our setup they don't
-  // share categories, but guard anyway.)
-  const catBuyIndex: Record<string, number> = {};
-  for (const cat of categorySet) catBuyIndex[cat] = 0;
-
   const boardSlots: BoardSlot[] = [];
   const history: { roundNo: number; playerA: string; playerB: string | null }[] = [];
   const damageEvents: DamageEvent[] = [];
-  const byesPerRound: number[] = [];
   const realIds = new Set(players.map((p) => p.id));
 
   let r2HpLeaderId: string | null = null;
   let endedAtRound = TOTAL_ROUNDS;
   let earlyFinish = false;
+  let firstEliminationRound: number | null = null;
 
   for (let round = 1; round <= TOTAL_ROUNDS; round++) {
     // ── AUCTION: bot buys highest-power available ─────────────────────────
     for (const p of players) {
       if (p.eliminatedAt !== null) continue;
       const pool = POOL_BY_CAT[p.category];
-      // Skip already-owned (shouldn't happen with per-player index, but guard)
       while (
         p.buyIndex < pool.length &&
         boardSlots.some(
@@ -205,19 +219,13 @@ function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
     };
     const pairings = pairRound(pairingInput);
 
-    let byesThisRound = 0;
     for (const pair of pairings) {
       history.push({ roundNo: round, playerA: pair.playerA, playerB: pair.playerB });
-      if (pair.playerB === null) { byesThisRound++; continue; }
     }
-    byesPerRound.push(byesThisRound);
 
     // ── COMBAT ────────────────────────────────────────────────────────────
     for (const [pi, pairing] of pairings.entries()) {
-      if (pairing.playerB === null) continue;
-
       const pA = players.find((p) => p.id === pairing.playerA)!;
-      const pB = players.find((p) => p.id === pairing.playerB)!;
 
       const ctx: CombatContext = {
         matchSeed: seed,
@@ -227,6 +235,47 @@ function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
         charactersById: BY_ID,
         bands: BANDS,
       };
+
+      if (pairing.playerB === null) {
+        // ── GHOST FIGHT ──────────────────────────────────────────────────
+        const candidates = players
+          .filter((p) => p.eliminatedAt === null && p.hp > 0 && p.id !== pA.id)
+          .map((p) => p.id);
+
+        if (candidates.length === 0) continue;
+
+        const ghostRealId = pickGhost(seed, round, pi, candidates);
+        const ghostBoard = fightingBoard(boardSlots, ghostRealId);
+        const byeBoard = fightingBoard(boardSlots, pA.id);
+
+        if (byeBoard.length === 0 || ghostBoard.length === 0) continue;
+
+        const built = buildDuelInput(
+          ctx,
+          { playerId: pA.id, nickname: pA.nickname, board: byeBoard },
+          { playerId: GHOST_PLAYER_PREFIX + ghostRealId, nickname: `ghost:${ghostRealId}`, board: ghostBoard },
+        );
+        if (!built.ok) continue;
+
+        const result = simulateBattle(built.input);
+        const outcome = outcomeOf(result, round, realIds);
+
+        // Ghost owner's HP is never touched. Only bye player can take damage.
+        if (outcome.loserPlayerId === pA.id) {
+          pA.hp = clampHp(pA.hp - outcome.damage, round);
+          damageEvents.push({ roundNo: round, damage: outcome.damage });
+          if (pA.hp <= 0 && pA.eliminatedAt === null) {
+            pA.eliminatedAt = round;
+            if (firstEliminationRound === null) firstEliminationRound = round;
+          }
+        } else if (outcome.winnerPlayerId === pA.id) {
+          pA.roundWins++;
+        }
+        continue;
+      }
+
+      // ── REAL DUEL ────────────────────────────────────────────────────────
+      const pB = players.find((p) => p.id === pairing.playerB)!;
 
       const built = buildDuelInput(
         ctx,
@@ -243,22 +292,21 @@ function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
         loser.hp = clampHp(loser.hp - outcome.damage, round);
         damageEvents.push({ roundNo: round, damage: outcome.damage });
         if (outcome.winnerPlayerId) {
-          const winner = players.find((p) => p.id === outcome.winnerPlayerId)!;
-          winner.roundWins++;
+          players.find((p) => p.id === outcome.winnerPlayerId)!.roundWins++;
         }
         if (loser.hp <= 0 && loser.eliminatedAt === null) {
           loser.eliminatedAt = round;
+          if (firstEliminationRound === null) firstEliminationRound = round;
         }
       }
     }
 
-    // ── Capture R2 HP leader ──────────────────────────────────────────────
+    // ── R2: capture HP leader ─────────────────────────────────────────────
     if (round === 2) {
       const alive = players.filter((p) => p.eliminatedAt === null && p.hp > 0);
       if (alive.length > 1) {
         const maxHp = Math.max(...alive.map((p) => p.hp));
         const leaders = alive.filter((p) => p.hp === maxHp);
-        // Tie → pick by playerId (deterministic)
         r2HpLeaderId = leaders.sort((a, b) => a.id.localeCompare(b.id))[0].id;
       }
     }
@@ -283,15 +331,12 @@ function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
   const winnerFinalHp = alive.length > 0
     ? Math.max(...alive.map((p) => p.hp))
     : 0;
-
-  const noDamageCount = players.filter((p) => p.hp === STARTING_HP).length;
+  const noDamageCount = players.filter((p) => p.hp === startingHp).length;
   const finalHps = players.map((p) => p.hp);
   const elimCount = players.filter((p) => p.eliminatedAt !== null).length;
 
   let r2LeaderWon: boolean | null = null;
   if (r2HpLeaderId !== null) {
-    const leader = players.find((p) => p.id === r2HpLeaderId)!;
-    // "Won" = survived to the end with the highest HP among survivors
     const survived = players.filter((p) => p.eliminatedAt === null && p.hp > 0);
     if (survived.length > 0) {
       const maxSurvivorHp = Math.max(...survived.map((p) => p.hp));
@@ -305,41 +350,18 @@ function simulateMatch(playerCount: 3 | 5, seed: string): MatchResult {
   return {
     seed,
     playerCount,
+    startingHp,
     endedAtRound,
     earlyFinish,
     winnerFinalHp,
     noDamageCount,
     r2LeaderWon,
     damageEvents,
-    byesPerRound,
     finalHps,
     elimCount,
+    firstEliminationRound,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Run all matches
-// ---------------------------------------------------------------------------
-
-console.log(`\n${"═".repeat(72)}`);
-console.log(`  DRAFT WAR — MONTE CARLO BALANCE SIMULATION`);
-console.log(`  ${MATCH_COUNT_EACH}×3-player + ${MATCH_COUNT_EACH}×5-player = ${MATCH_COUNT_EACH * 2} matches`);
-console.log(`  Bot: always buy highest game_power | Rounds: ${TOTAL_ROUNDS} | HP: ${STARTING_HP}`);
-console.log(`${"═".repeat(72)}\n`);
-
-const allResults: MatchResult[] = [];
-
-process.stdout.write("  Running 3-player matches... ");
-for (let i = 0; i < MATCH_COUNT_EACH; i++) {
-  allResults.push(simulateMatch(3, `balance-3p-${String(i + 1).padStart(3, "0")}`));
-}
-console.log("done.");
-
-process.stdout.write("  Running 5-player matches... ");
-for (let i = 0; i < MATCH_COUNT_EACH; i++) {
-  allResults.push(simulateMatch(5, `balance-5p-${String(i + 1).padStart(3, "0")}`));
-}
-console.log("done.\n");
 
 // ---------------------------------------------------------------------------
 // Metric helpers
@@ -353,145 +375,176 @@ function pct(n: number, total: number): string {
   return `${((n / total) * 100).toFixed(1)}%`;
 }
 function fmt1(n: number): string { return n.toFixed(1); }
-function fmt0(n: number): string { return Math.round(n).toString(); }
 
 // ---------------------------------------------------------------------------
-// Compute and print metrics by player-count variant
+// Run all 16 combinations
 // ---------------------------------------------------------------------------
 
-for (const playerCount of [3, 5] as const) {
-  const results = allResults.filter((r) => r.playerCount === playerCount);
-  const N = results.length;
-  const label = `${playerCount}-PLAYER (${N} matches)`;
-  const SEP = "─".repeat(72);
+type ComboKey = `hp${number}_p${number}`;
+const results = new Map<ComboKey, MatchResult[]>();
 
-  console.log(`\n${"═".repeat(72)}`);
-  console.log(`  ${label}`);
-  console.log(`${"═".repeat(72)}`);
-
-  // a) Round distribution
-  const endRounds = results.map((r) => r.endedAtRound);
-  const roundCounts: Record<number, number> = {};
-  for (const r of endRounds) roundCounts[r] = (roundCounts[r] ?? 0) + 1;
-
-  console.log(`\n  a) Round distribution (when match ended):`);
-  console.log(`     ${"Round".padEnd(8)} ${"Count".padStart(6)}  ${"Share".padStart(8)}`);
-  for (let r = 1; r <= TOTAL_ROUNDS; r++) {
-    const n = roundCounts[r] ?? 0;
-    if (n === 0) continue;
-    const bar = "█".repeat(Math.round(n / N * 20));
-    console.log(`     R${r}       ${String(n).padStart(6)}  ${pct(n, N).padStart(8)}  ${bar}`);
-  }
-  const earlyCount = results.filter((r) => r.earlyFinish).length;
-  console.log(`     liveCount<2 early exit: ${earlyCount} / ${N} (${pct(earlyCount, N)})`);
-
-  // b) Eliminations
-  const elimCounts = results.map((r) => r.elimCount);
-  const elimDist: Record<number, number> = {};
-  for (const e of elimCounts) elimDist[e] = (elimDist[e] ?? 0) + 1;
-  console.log(`\n  b) Eliminations per match:`);
-  console.log(`     avg=${fmt1(avg(elimCounts))}  min=${Math.min(...elimCounts)}  max=${Math.max(...elimCounts)}`);
-  console.log(`     Distribution: ` + Object.entries(elimDist)
-    .sort(([a], [b]) => Number(a) - Number(b))
-    .map(([k, v]) => `${k} elim: ${v} (${pct(v, N)})`)
-    .join("  |  "));
-
-  // c) Winner final HP
-  const winnerHps = results.map((r) => r.winnerFinalHp);
-  console.log(`\n  c) Winner final HP:`);
-  console.log(`     avg=${fmt1(avg(winnerHps))}  min=${Math.min(...winnerHps)}  max=${Math.max(...winnerHps)}`);
-  // Distribution buckets: 1-20, 21-40, 41-60, 61-80
-  const buckets = [
-    [1, 20], [21, 40], [41, 60], [61, 80],
-  ];
-  for (const [lo, hi] of buckets) {
-    const n = winnerHps.filter((hp) => hp >= lo && hp <= hi).length;
-    console.log(`     HP ${String(lo).padStart(2)}–${String(hi).padStart(2)}: ${String(n).padStart(3)} (${pct(n, N)})`);
-  }
-
-  // d) No-damage players
-  const totalPlayers = results.reduce((sum, r) => sum + r.playerCount, 0);
-  const noDamagePlayers = results.reduce((sum, r) => sum + r.noDamageCount, 0);
-  console.log(`\n  d) Players who took zero damage:`);
-  console.log(`     ${noDamagePlayers} / ${totalPlayers} players (${pct(noDamagePlayers, totalPlayers)}) ended at full HP ${STARTING_HP}`);
-
-  // e) Snowball: R2 HP leader wins
-  const r2Applicable = results.filter((r) => r.r2LeaderWon !== null);
-  const r2Wins = r2Applicable.filter((r) => r.r2LeaderWon === true).length;
-  const r2Pct = r2Applicable.length > 0
-    ? ((r2Wins / r2Applicable.length) * 100).toFixed(1)
-    : "n/a";
-  console.log(`\n  e) Snowball — R2 HP leader wins the match:`);
-  console.log(`     ${r2Wins} / ${r2Applicable.length} (${r2Pct}%)`);
-
-  // f) Damage per round
-  console.log(`\n  f) Damage per round:`);
-  console.log(`     ${"Round".padEnd(8)} ${"Fights".padStart(7)} ${"Avg dmg".padStart(9)} ${"Min".padStart(5)} ${"Max".padStart(5)}`);
-  for (let r = 1; r <= TOTAL_ROUNDS; r++) {
-    const events = results.flatMap((m) => m.damageEvents.filter((e) => e.roundNo === r));
-    if (events.length === 0) continue;
-    const damages = events.map((e) => e.damage);
-    console.log(
-      `     R${r}       ${String(events.length).padStart(7)}` +
-      `  ${fmt1(avg(damages)).padStart(8)}` +
-      `  ${Math.min(...damages).toString().padStart(5)}` +
-      `  ${Math.max(...damages).toString().padStart(5)}`,
-    );
-  }
-
-  // g) Early finish count (already printed in a, reiterate clearly)
-  console.log(`\n  g) Early-finish matches (liveCount<2 before R${TOTAL_ROUNDS}):`);
-  console.log(`     ${earlyCount} / ${N} (${pct(earlyCount, N)})`);
-  if (earlyCount > 0) {
-    const earlyRounds = results.filter((r) => r.earlyFinish).map((r) => r.endedAtRound);
-    const earlyDist: Record<number, number> = {};
-    for (const r of earlyRounds) earlyDist[r] = (earlyDist[r] ?? 0) + 1;
-    console.log(`     At which round: ` + Object.entries(earlyDist)
-      .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([k, v]) => `R${k}: ${v}`)
-      .join("  |  "));
-  }
-
-  // h) Byes per round (3-player specific)
-  if (playerCount === 3) {
-    const byeTotals: Record<number, number> = {};
-    for (const r of results) {
-      r.byesPerRound.forEach((count, i) => {
-        const rno = i + 1;
-        byeTotals[rno] = (byeTotals[rno] ?? 0) + count;
-      });
+for (const hp of HP_VALUES) {
+  for (const pc of PLAYER_COUNTS) {
+    const key: ComboKey = `hp${hp}_p${pc}`;
+    const batch: MatchResult[] = [];
+    process.stdout.write(`  HP=${hp} ${pc}p ... `);
+    for (let i = 0; i < MATCH_COUNT; i++) {
+      batch.push(simulateMatch(
+        pc as 2 | 3 | 4 | 5,
+        `bal-hp${hp}-${pc}p-${String(i + 1).padStart(3, "0")}`,
+        hp,
+      ));
     }
-    console.log(`\n  h) 3-player: byes per round (total across ${N} matches):`);
-    console.log(`     ${"Round".padEnd(8)} ${"Total byes".padStart(12)} ${"Avg/match".padStart(12)}`);
-    for (let r = 1; r <= TOTAL_ROUNDS; r++) {
-      const total = byeTotals[r] ?? 0;
-      console.log(
-        `     R${r}       ${String(total).padStart(12)}` +
-        `  ${fmt1(total / N).padStart(12)}`,
-      );
-    }
-    console.log(`     → Every 3-player round has exactly 1 bye (3 live → 1 fight + 1 bye).`);
+    results.set(key, batch);
+    console.log(`done (${batch.length} matches)`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Combined summary
+// Per-combination summary helper
 // ---------------------------------------------------------------------------
 
-console.log(`\n${"═".repeat(72)}`);
-console.log(`  COMBINED SUMMARY (all ${allResults.length} matches)`);
-console.log(`${"═".repeat(72)}`);
-const allWinnerHps = allResults.map((r) => r.winnerFinalHp);
-const allElims = allResults.map((r) => r.elimCount);
-const allEarlyFinish = allResults.filter((r) => r.earlyFinish).length;
-const allNoDmg = allResults.reduce((s, r) => s + r.noDamageCount, 0);
-const allPlayerTotal = allResults.reduce((s, r) => s + r.playerCount, 0);
-const allR2 = allResults.filter((r) => r.r2LeaderWon !== null);
-const allR2Wins = allR2.filter((r) => r.r2LeaderWon === true).length;
+interface ComboStats {
+  hp: number;
+  pc: number;
+  elimAvg: number;
+  elimGt0Pct: number;        // % matches with ≥1 elimination
+  firstElimAvgRound: number | null;
+  winnerHpAvg: number;
+  winnerHpMin: number;
+  winnerHpMax: number;
+  winnerHpPct: number;       // winner HP as % of starting
+  earlyFinishPct: number;    // % ending before R8
+}
 
-console.log(`  Winner HP avg/min/max : ${fmt1(avg(allWinnerHps))} / ${Math.min(...allWinnerHps)} / ${Math.max(...allWinnerHps)}`);
-console.log(`  Eliminations avg      : ${fmt1(avg(allElims))}`);
-console.log(`  Early finish          : ${allEarlyFinish} / ${allResults.length} (${pct(allEarlyFinish, allResults.length)})`);
-console.log(`  No-damage players     : ${allNoDmg} / ${allPlayerTotal} (${pct(allNoDmg, allPlayerTotal)})`);
-console.log(`  Snowball (R2→win)     : ${allR2Wins} / ${allR2.length} (${((allR2Wins / allR2.length) * 100).toFixed(1)}%)`);
-console.log(`\n${"═".repeat(72)}\n`);
+function computeStats(hp: number, pc: number): ComboStats {
+  const key: ComboKey = `hp${hp}_p${pc}`;
+  const batch = results.get(key)!;
+  const N = batch.length;
+
+  const elimCounts = batch.map((r) => r.elimCount);
+  const elimGt0 = batch.filter((r) => r.elimCount > 0).length;
+
+  const firstElimRounds = batch
+    .map((r) => r.firstEliminationRound)
+    .filter((r): r is number => r !== null);
+
+  const winnerHps = batch.map((r) => r.winnerFinalHp);
+  const earlyCount = batch.filter((r) => r.earlyFinish).length;
+
+  return {
+    hp,
+    pc,
+    elimAvg: avg(elimCounts),
+    elimGt0Pct: (elimGt0 / N) * 100,
+    firstElimAvgRound: firstElimRounds.length > 0 ? avg(firstElimRounds) : null,
+    winnerHpAvg: avg(winnerHps),
+    winnerHpMin: Math.min(...winnerHps),
+    winnerHpMax: Math.max(...winnerHps),
+    winnerHpPct: (avg(winnerHps) / hp) * 100,
+    earlyFinishPct: (earlyCount / N) * 100,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Print detailed results per HP block
+// ---------------------------------------------------------------------------
+
+console.log(`\n${"═".repeat(80)}`);
+console.log(`  DRAFT WAR — GHOST-ACTIVE BALANCE SIMULATION`);
+console.log(`  ${MATCH_COUNT} matches × 4 player-counts × 4 HP values = ${MATCH_COUNT * 16} total matches`);
+console.log(`  Bot: highest game_power | Ghost fights active (odd-seat rounds)`);
+console.log(`${"═".repeat(80)}`);
+
+// Target profile reminder
+console.log(`
+  Target profile:
+    - ≥50% of matches have at least 1 elimination
+    - First elimination on average R6-R7
+    - Winner finishes at 30-60% of starting HP
+    - Player-count should not dominate outcome (ghost normalises odd seats)
+`);
+
+for (const hp of HP_VALUES) {
+  console.log(`\n${"─".repeat(80)}`);
+  console.log(`  HP = ${hp}`);
+  console.log(`${"─".repeat(80)}`);
+  console.log(
+    `  ${"Players".padEnd(9)}` +
+    `${"Elim/match".padStart(12)}` +
+    `${"≥1 elim".padStart(10)}` +
+    `${"1st elim R".padStart(12)}` +
+    `${"Win HP avg".padStart(12)}` +
+    `${"Win HP %".padStart(10)}` +
+    `${"Early end".padStart(11)}`,
+  );
+  console.log(`  ${"─".repeat(74)}`);
+  for (const pc of PLAYER_COUNTS) {
+    const s = computeStats(hp, pc);
+    const firstStr = s.firstElimAvgRound !== null ? fmt1(s.firstElimAvgRound) : "none";
+    console.log(
+      `  ${String(pc).padEnd(9)}` +
+      `${fmt1(s.elimAvg).padStart(12)}` +
+      `${(s.elimGt0Pct.toFixed(1) + "%").padStart(10)}` +
+      `${firstStr.padStart(12)}` +
+      `${(fmt1(s.winnerHpAvg) + ` (${s.winnerHpMin}–${s.winnerHpMax})`).padStart(12)}` +
+      `${(s.winnerHpPct.toFixed(1) + "%").padStart(10)}` +
+      `${(s.earlyFinishPct.toFixed(1) + "%").padStart(11)}`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-player consistency check (ghost validation)
+// ---------------------------------------------------------------------------
+
+console.log(`\n${"═".repeat(80)}`);
+console.log(`  GHOST VALIDATION: 3p vs 5p gap (should be small with ghost active)`);
+console.log(`${"═".repeat(80)}`);
+console.log(
+  `  ${"HP".padEnd(6)}` +
+  `${"3p elim%".padStart(10)}` +
+  `${"5p elim%".padStart(10)}` +
+  `${"gap".padStart(8)}` +
+  `${"3p winHP%".padStart(12)}` +
+  `${"5p winHP%".padStart(12)}` +
+  `${"gap".padStart(8)}`,
+);
+console.log(`  ${"─".repeat(64)}`);
+for (const hp of HP_VALUES) {
+  const s3 = computeStats(hp, 3);
+  const s5 = computeStats(hp, 5);
+  const elimGap = Math.abs(s3.elimGt0Pct - s5.elimGt0Pct);
+  const hpGap = Math.abs(s3.winnerHpPct - s5.winnerHpPct);
+  console.log(
+    `  ${String(hp).padEnd(6)}` +
+    `${(s3.elimGt0Pct.toFixed(1) + "%").padStart(10)}` +
+    `${(s5.elimGt0Pct.toFixed(1) + "%").padStart(10)}` +
+    `${(elimGap.toFixed(1) + "pp").padStart(8)}` +
+    `${(s3.winnerHpPct.toFixed(1) + "%").padStart(12)}` +
+    `${(s5.winnerHpPct.toFixed(1) + "%").padStart(12)}` +
+    `${(hpGap.toFixed(1) + "pp").padStart(8)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Markdown table output (for docs/S8.6-BALANCE.md)
+// ---------------------------------------------------------------------------
+
+console.log(`\n${"═".repeat(80)}`);
+console.log(`  MARKDOWN TABLE (copy to docs/S8.6-BALANCE.md)`);
+console.log(`${"═".repeat(80)}\n`);
+
+console.log(`| HP | Players | Elim/match | ≥1 elim | 1st elim (avg R) | Win HP avg | Win HP % | Early end |`);
+console.log(`|---|---|---|---|---|---|---|---|`);
+for (const hp of HP_VALUES) {
+  for (const pc of PLAYER_COUNTS) {
+    const s = computeStats(hp, pc);
+    const firstStr = s.firstElimAvgRound !== null ? fmt1(s.firstElimAvgRound) : "—";
+    console.log(
+      `| ${hp} | ${pc} | ${fmt1(s.elimAvg)} | ${s.elimGt0Pct.toFixed(1)}% | ${firstStr} | ${fmt1(s.winnerHpAvg)} (${s.winnerHpMin}–${s.winnerHpMax}) | ${s.winnerHpPct.toFixed(1)}% | ${s.earlyFinishPct.toFixed(1)}% |`,
+    );
+  }
+}
+
+console.log(`\n${"═".repeat(80)}\n`);
