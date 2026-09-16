@@ -59,7 +59,8 @@ describe("which migration owns which function", () => {
     // A move is a real event worth seeing in a diff — 0033 took the phase
     // advance from 0032 to close a guard hole — but it must not break the
     // tests that read it.
-    expect(liveDefinitionOf("dw_pair_round").file).toBe("0032_s8_round_pairing.sql");
+    // dw_pair_round superseded by 0037 (round_live_count column for damage scaling).
+    expect(liveDefinitionOf("dw_pair_round").file).toBe("0037_s8_damage_scaling.sql");
     // 0033 took the phase advance to close the draft guard hole; 0034 took it
     // again, along with the tick and the snapshot, for round combat.
     expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0034_s8_round_combat.sql");

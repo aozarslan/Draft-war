@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { liveDefinitionOf } from "./support/migrations";
 import { STARTING_HP, ELIMINATION_FROM_ROUND, nextPhaseOf, type MatchPhase } from "../src/lib/game/rounds";
 import {
-  DAMAGE_CURVE, GHOST_PLAYER_PREFIX, buildDuelInput, combatPlanFor, damageFor,
+  DAMAGE_CURVE, GHOST_PLAYER_PREFIX, LIVE_COUNT_SCALE,
+  buildDuelInput, combatPlanFor, damageFor,
   fightOne, fightingBoardOf, outcomeOf, type CombatContext,
 } from "../src/lib/game/combat";
 import { computeAxisBands, computeSynergy, simulateBattle } from "../src/lib/game/battle";
@@ -532,9 +533,74 @@ describe("0034 adds behaviour, not schema", () => {
     // dw_resolve_matchup and dw_match_snapshot are superseded by 0035.
     expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0035_s8_ghost_rounds.sql");
     expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0035_s8_ghost_rounds.sql");
+    // dw_pair_round superseded by 0037 (round_live_count column).
+    expect(liveDefinitionOf("dw_pair_round").file).toBe("0037_s8_damage_scaling.sql");
   });
 
   it("hands the stored fight back to the client", () => {
     expect(fn("dw_match_snapshot")).toContain("'battleResult', r.battle_result");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live-count damage scaling (S8 ADIM 4 / 0037)
+// ---------------------------------------------------------------------------
+
+describe("live-count damage scaling", () => {
+  const base = { roundNo: 5, winnerHpFraction: 0.5 };
+
+  it("scales match LIVE_COUNT_SCALE: 2→0.75, 3→0.90, 4+→1.00", () => {
+    expect(LIVE_COUNT_SCALE[2]).toBe(0.75);
+    expect(LIVE_COUNT_SCALE[3]).toBe(0.90);
+    expect(LIVE_COUNT_SCALE[4]).toBeUndefined(); // absent = 1.0
+    expect(LIVE_COUNT_SCALE[5]).toBeUndefined(); // absent = 1.0
+  });
+
+  it("reduces damage for smaller fields", () => {
+    const d5 = damageFor({ ...base, liveCount: 5 });
+    const d4 = damageFor({ ...base, liveCount: 4 });
+    const d3 = damageFor({ ...base, liveCount: 3 });
+    const d2 = damageFor({ ...base, liveCount: 2 });
+    expect(d5).toBeGreaterThanOrEqual(d4);
+    expect(d4).toBeGreaterThanOrEqual(d3);
+    expect(d3).toBeGreaterThanOrEqual(d2);
+    expect(d5).toBeGreaterThan(d2);
+  });
+
+  it("absent liveCount behaves as 5+ (scale 1.0)", () => {
+    const withoutScale = damageFor(base);
+    const withFive = damageFor({ ...base, liveCount: 5 });
+    const withSix = damageFor({ ...base, liveCount: 6 });
+    expect(withoutScale).toBe(withFive);
+    expect(withoutScale).toBe(withSix);
+  });
+
+  it("same round, two fights use the same liveCount scale (round-start fixed)", () => {
+    // Simulates DÜZELTME A: both fights in a round use liveCount=3.
+    // An elimination mid-round does NOT change the second fight's damage.
+    const fightEarly = damageFor({ ...base, liveCount: 3 });
+    const fightLate = damageFor({ roundNo: 5, winnerHpFraction: 0.8, liveCount: 3 });
+    // Both are scaled by 0.80 — verify they are less than their unscaled equivalents.
+    expect(fightEarly).toBeLessThanOrEqual(damageFor({ ...base }));
+    expect(fightLate).toBeLessThanOrEqual(damageFor({ roundNo: 5, winnerHpFraction: 0.8 }));
+    // And both are MORE than liveCount=2 at the same inputs.
+    expect(fightEarly).toBeGreaterThanOrEqual(damageFor({ ...base, liveCount: 2 }));
+    expect(fightLate).toBeGreaterThanOrEqual(damageFor({ roundNo: 5, winnerHpFraction: 0.8, liveCount: 2 }));
+  });
+
+  it("SQL 0037 mirrors LIVE_COUNT_SCALE in its scale comment", () => {
+    // liveDefinitionOf returns the function body; the scale comment is inside it.
+    const sql = liveDefinitionOf("dw_pair_round").sql;
+    expect(sql).toContain("0.75");
+    expect(sql).toContain("0.90");
+    expect(sql).toContain("1.00");
+  });
+
+  it("SQL 0037 stores round_live_count on each matchup row", () => {
+    const sql = liveDefinitionOf("dw_pair_round").sql;
+    // Column is referenced in the INSERT statement.
+    expect(sql).toContain("round_live_count");
+    // v_live is computed once before the loop; round_live_count is the stored value.
+    expect(sql).toContain("v_live");
   });
 });

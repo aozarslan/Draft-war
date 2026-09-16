@@ -33,7 +33,8 @@ import { pairRound, type PairRoundInput } from "../src/lib/game/matchmaking";
 // Sweep parameters
 // ---------------------------------------------------------------------------
 
-const HP_VALUES = [50, 60, 70, 80] as const;
+// ADIM 3 validation: HP=60 fixed. Full sweep re-enabled by editing this array.
+const HP_VALUES = [60] as const;
 const PLAYER_COUNTS = [2, 3, 4, 5] as const;
 const TOTAL_ROUNDS = STANDARD_MATCH_ROUNDS; // 8
 const MATCH_COUNT = 100; // per combination
@@ -101,6 +102,11 @@ interface MatchResult {
   elimCount: number;
   /** Round when the first elimination happened, or null if none. */
   firstEliminationRound: number | null;
+  /**
+   * For 5p only: the round when the match dropped to exactly 2 live players.
+   * Used to compute "post-2-survivor drag". Null if never reached 2 before end.
+   */
+  reachedTwoAt: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +188,7 @@ function simulateMatch(
   let endedAtRound = TOTAL_ROUNDS;
   let earlyFinish = false;
   let firstEliminationRound: number | null = null;
+  let reachedTwoAt: number | null = null;
 
   for (let round = 1; round <= TOTAL_ROUNDS; round++) {
     // ── AUCTION: bot buys highest-power available ─────────────────────────
@@ -224,6 +231,11 @@ function simulateMatch(
     }
 
     // ── COMBAT ────────────────────────────────────────────────────────────
+    // liveCount is fixed once before any fight in this round (DÜZELTME A).
+    const roundLiveCount = players.filter(
+      (p) => p.eliminatedAt === null && p.hp > 0,
+    ).length;
+
     for (const [pi, pairing] of pairings.entries()) {
       const pA = players.find((p) => p.id === pairing.playerA)!;
 
@@ -258,7 +270,7 @@ function simulateMatch(
         if (!built.ok) continue;
 
         const result = simulateBattle(built.input);
-        const outcome = outcomeOf(result, round, realIds);
+        const outcome = outcomeOf(result, round, realIds, roundLiveCount);
 
         // Ghost owner's HP is never touched. Only bye player can take damage.
         if (outcome.loserPlayerId === pA.id) {
@@ -285,7 +297,7 @@ function simulateMatch(
       if (!built.ok) continue;
 
       const result = simulateBattle(built.input);
-      const outcome = outcomeOf(result, round, realIds);
+      const outcome = outcomeOf(result, round, realIds, roundLiveCount);
 
       if (outcome.loserPlayerId) {
         const loser = players.find((p) => p.id === outcome.loserPlayerId)!;
@@ -313,6 +325,12 @@ function simulateMatch(
 
     // ── ROUND_END: early-finish check ─────────────────────────────────────
     const live = players.filter((p) => p.eliminatedAt === null && p.hp > 0);
+
+    // Track when a 5p match first drops to exactly 2 survivors.
+    if (playerCount >= 4 && live.length === 2 && reachedTwoAt === null) {
+      reachedTwoAt = round;
+    }
+
     const next = nextPhaseOf("ROUND_END", {
       roundNo: round,
       totalRounds: TOTAL_ROUNDS,
@@ -360,6 +378,7 @@ function simulateMatch(
     finalHps,
     elimCount,
     firstEliminationRound,
+    reachedTwoAt,
   };
 }
 
@@ -408,13 +427,17 @@ interface ComboStats {
   hp: number;
   pc: number;
   elimAvg: number;
-  elimGt0Pct: number;        // % matches with ≥1 elimination
+  elimGt0Pct: number;
   firstElimAvgRound: number | null;
   winnerHpAvg: number;
   winnerHpMin: number;
   winnerHpMax: number;
-  winnerHpPct: number;       // winner HP as % of starting
-  earlyFinishPct: number;    // % ending before R8
+  winnerHpPct: number;
+  earlyFinishPct: number;
+  /** 2p only: avg round at which match ended. */
+  avgEndRound: number;
+  /** 5p only: avg extra rounds after first reaching 2 survivors. Null if never. */
+  post2SurvivorAvgRounds: number | null;
 }
 
 function computeStats(hp: number, pc: number): ComboStats {
@@ -432,6 +455,11 @@ function computeStats(hp: number, pc: number): ComboStats {
   const winnerHps = batch.map((r) => r.winnerFinalHp);
   const earlyCount = batch.filter((r) => r.earlyFinish).length;
 
+  // 5p: how many rounds elapsed between first reaching 2 survivors and match end
+  const post2 = batch
+    .filter((r) => r.reachedTwoAt !== null)
+    .map((r) => r.endedAtRound - r.reachedTwoAt!);
+
   return {
     hp,
     pc,
@@ -443,6 +471,8 @@ function computeStats(hp: number, pc: number): ComboStats {
     winnerHpMax: Math.max(...winnerHps),
     winnerHpPct: (avg(winnerHps) / hp) * 100,
     earlyFinishPct: (earlyCount / N) * 100,
+    avgEndRound: avg(batch.map((r) => r.endedAtRound)),
+    post2SurvivorAvgRounds: post2.length > 0 ? avg(post2) : null,
   };
 }
 
@@ -450,46 +480,46 @@ function computeStats(hp: number, pc: number): ComboStats {
 // Print detailed results per HP block
 // ---------------------------------------------------------------------------
 
-console.log(`\n${"═".repeat(80)}`);
-console.log(`  DRAFT WAR — GHOST-ACTIVE BALANCE SIMULATION`);
-console.log(`  ${MATCH_COUNT} matches × 4 player-counts × 4 HP values = ${MATCH_COUNT * 16} total matches`);
-console.log(`  Bot: highest game_power | Ghost fights active (odd-seat rounds)`);
-console.log(`${"═".repeat(80)}`);
+console.log(`\n${"═".repeat(88)}`);
+console.log(`  DRAFT WAR — BALANCE SIMULATION (HP=60, liveCount scaling active)`);
+console.log(`  ${MATCH_COUNT} matches × 4 player-counts = ${MATCH_COUNT * 4} matches`);
+console.log(`  Bot: highest game_power | Ghost + liveCount scale (2→0.65, 3→0.80, 4→0.90, 5+→1.00)`);
+console.log(`${"═".repeat(88)}`);
 
-// Target profile reminder
 console.log(`
   Target profile:
-    - ≥50% of matches have at least 1 elimination
-    - First elimination on average R6-R7
-    - Winner finishes at 30-60% of starting HP
-    - Player-count should not dominate outcome (ghost normalises odd seats)
+    2p : avg end round R6.5-8
+    3-5p: first elim R6-R7, winner HP 40-60%, ≥50% matches have ≥1 elim
+    5p  : after reaching 2 survivors, match ends within 2 rounds
 `);
 
+const header =
+  `  ${"Players".padEnd(9)}` +
+  `${"End R avg".padStart(10)}` +
+  `${"Elim/match".padStart(12)}` +
+  `${"≥1 elim".padStart(10)}` +
+  `${"1st elim R".padStart(12)}` +
+  `${"Win HP%".padStart(9)}` +
+  `${"Post-2 drag".padStart(13)}`;
+
 for (const hp of HP_VALUES) {
-  console.log(`\n${"─".repeat(80)}`);
+  console.log(`\n${"─".repeat(78)}`);
   console.log(`  HP = ${hp}`);
-  console.log(`${"─".repeat(80)}`);
-  console.log(
-    `  ${"Players".padEnd(9)}` +
-    `${"Elim/match".padStart(12)}` +
-    `${"≥1 elim".padStart(10)}` +
-    `${"1st elim R".padStart(12)}` +
-    `${"Win HP avg".padStart(12)}` +
-    `${"Win HP %".padStart(10)}` +
-    `${"Early end".padStart(11)}`,
-  );
+  console.log(`${"─".repeat(78)}`);
+  console.log(header);
   console.log(`  ${"─".repeat(74)}`);
   for (const pc of PLAYER_COUNTS) {
     const s = computeStats(hp, pc);
-    const firstStr = s.firstElimAvgRound !== null ? fmt1(s.firstElimAvgRound) : "none";
+    const firstStr = s.firstElimAvgRound !== null ? fmt1(s.firstElimAvgRound) : "—";
+    const dragStr = s.post2SurvivorAvgRounds !== null ? fmt1(s.post2SurvivorAvgRounds) : "—";
     console.log(
       `  ${String(pc).padEnd(9)}` +
+      `${fmt1(s.avgEndRound).padStart(10)}` +
       `${fmt1(s.elimAvg).padStart(12)}` +
       `${(s.elimGt0Pct.toFixed(1) + "%").padStart(10)}` +
       `${firstStr.padStart(12)}` +
-      `${(fmt1(s.winnerHpAvg) + ` (${s.winnerHpMin}–${s.winnerHpMax})`).padStart(12)}` +
-      `${(s.winnerHpPct.toFixed(1) + "%").padStart(10)}` +
-      `${(s.earlyFinishPct.toFixed(1) + "%").padStart(11)}`,
+      `${(s.winnerHpPct.toFixed(1) + "%").padStart(9)}` +
+      `${dragStr.padStart(13)}`,
     );
   }
 }

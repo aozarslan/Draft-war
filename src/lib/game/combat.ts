@@ -66,6 +66,28 @@ export const DAMAGE_CURVE = {
  */
 export const UPSET_MULTIPLIER = 1.15;
 
+/**
+ * Per-seat damage multiplier, keyed by the number of live players at the
+ * START of the round (fixed for the whole round — see DÜZELTME A).
+ *
+ * Rationale: with ghost active every player fights once per round regardless
+ * of player count, so raw damage accumulation is the same across formats.
+ * What differs is how many eliminations a match needs before it ends, which
+ * makes 2p finish very fast and 5p finish slowly at the same HP setting.
+ * The scale narrows that gap: fewer live seats → lower per-fight damage →
+ * matches slow down as the field thins, creating a tense endgame.
+ *
+ * Values are the first calibration pass from the S8.6b balance sweep.
+ * 5+ omitted: absent key → scale 1.0 (reference).
+ *
+ * Mirrored in 0037_s8_damage_scaling.sql — the pin test in
+ * tests/round-combat.test.ts keeps the two in sync.
+ */
+export const LIVE_COUNT_SCALE: Readonly<Record<number, number>> = {
+  2: 0.75,
+  3: 0.90,
+};
+
 export interface DamageInput {
   /** 1-based. A later round hurts more. */
   roundNo: number;
@@ -77,6 +99,12 @@ export interface DamageInput {
   winnerHpFraction: number;
   /** The engine's own `upset` flag. */
   upset?: boolean;
+  /**
+   * Live player count at the START of this round (fixed before any fights).
+   * Absent → scale 1.0 (backwards compatible with existing call sites and
+   * tests that do not supply it).
+   */
+  liveCount?: number;
 }
 
 /**
@@ -94,10 +122,14 @@ export function damageFor(input: DamageInput): number {
     ? Math.max(0, Math.min(1, input.winnerHpFraction))
     : 0;
   const round = Number.isFinite(input.roundNo) ? Math.max(1, Math.floor(input.roundNo)) : 1;
+  const scale = input.liveCount !== undefined
+    ? (LIVE_COUNT_SCALE[input.liveCount] ?? 1.0)
+    : 1.0;
   const raw =
     (DAMAGE_CURVE.base + DAMAGE_CURVE.sweep * health) *
     (1 + DAMAGE_CURVE.ramp * (round - 1)) *
-    (input.upset ? UPSET_MULTIPLIER : 1);
+    (input.upset ? UPSET_MULTIPLIER : 1) *
+    scale;
   return Math.max(DAMAGE_CURVE.floor, Math.min(DAMAGE_CURVE.cap, Math.round(raw)));
 }
 
@@ -394,9 +426,10 @@ export function fightOne(
   input: SimulateInput,
   roundNo: number,
   realPlayerIds: ReadonlySet<string>,
+  liveCount?: number,
 ): { result: BattleResult; outcome: CombatOutcome } {
   const result = simulateBattle(input);
-  return { result, outcome: outcomeOf(result, roundNo, realPlayerIds) };
+  return { result, outcome: outcomeOf(result, roundNo, realPlayerIds, liveCount) };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +458,7 @@ export function outcomeOf(
   result: Pick<BattleResult, "teams" | "winnerPlayerId" | "upset">,
   roundNo: number,
   realPlayerIds: ReadonlySet<string>,
+  liveCount?: number,
 ): CombatOutcome {
   const winner = result.teams.find((t) => t.playerId === result.winnerPlayerId) ?? null;
   const loser = result.teams.find((t) => t.playerId !== result.winnerPlayerId) ?? null;
@@ -438,6 +472,7 @@ export function outcomeOf(
           roundNo,
           winnerHpFraction: winner.remainingHpPct / 100,
           upset: Boolean(result.upset),
+          liveCount,
         })
       : 0;
 

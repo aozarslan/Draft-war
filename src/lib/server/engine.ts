@@ -548,6 +548,13 @@ export async function resolveRoundCombat(roomId: string): Promise<void> {
   const seatOf = new Map(snap.players.map((p) => [p.id, p]));
   const realPlayerIds = new Set(match.players.map((p) => p.playerId));
 
+  // liveCount is fixed once at round start (before any fights resolve).
+  // All fights in this round use the same multiplier regardless of whether
+  // an earlier fight in the same round caused an elimination.
+  const roundLiveCount = match.players.filter(
+    (p) => p.eliminatedAt === null && p.hp > 0,
+  ).length;
+
   // Which fights are owed, and their inputs, are decided by a pure function
   // with its own tests — see `combatPlanFor`.
   const plan = combatPlanFor(match, {
@@ -560,7 +567,7 @@ export async function resolveRoundCombat(roomId: string): Promise<void> {
   });
 
   for (const fight of plan) {
-    const { result, outcome } = fightOne(fight.input, match.roundNo, realPlayerIds);
+    const { result, outcome } = fightOne(fight.input, match.roundNo, realPlayerIds, roundLiveCount);
     await rpcOrThrow("dw_resolve_matchup", {
       p_room_id: roomId,
       p_pairing_index: fight.pairingIndex,
