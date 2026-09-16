@@ -3,7 +3,7 @@
  * Pure-TypeScript match simulation — no Docker, no Supabase needed.
  *
  * Exercises every S8.5b invariant in the real call-path:
- *   - STARTING_HP = 80 at kick-off
+ *   - STARTING_HP = 60 at kick-off
  *   - board re-rank: strongest five hold FRONT after every purchase
  *   - round 6 high-power purchase displaces a weaker incumbent
  *   - HP is reduced by real simulateBattle output via outcomeOf + clampHp
@@ -181,8 +181,8 @@ console.log(`${"═".repeat(88)}`);
 console.log(`\n  Starting HP: ${STARTING_HP}  (STARTING_HP constant from rounds.ts)`);
 
 // Verify starting HP
-console.assert(STARTING_HP === 80, `STARTING_HP should be 80, got ${STARTING_HP}`);
-console.log(`  ✓ STARTING_HP === 80\n`);
+console.assert(STARTING_HP === 60, `STARTING_HP should be 60, got ${STARTING_HP}`);
+console.log(`  ✓ STARTING_HP === 60\n`);
 
 // Initialise HP
 players.forEach((p) => { p.hp = STARTING_HP; });
@@ -382,10 +382,10 @@ console.log(`\n  ASSERTIONS`);
 console.log("  " + "─".repeat(84));
 
 const startingHpCorrect = players.every((p) => {
-  // We started all at STARTING_HP; check we actually used 80
+  // We started all at STARTING_HP; check we actually used 60
   return true;
 });
-console.log(`  ✓ STARTING_HP = ${STARTING_HP} (constant; SQL mirror: dw_start_match inserts 80)`);
+console.log(`  ✓ STARTING_HP = ${STARTING_HP} (constant; SQL mirror: dw_start_match inserts 60)`);
 
 const hpNeverNegative = players.every((p) => p.hp >= 0);
 console.log(`  ${hpNeverNegative ? "✓" : "✗"} No player has negative HP`);

@@ -353,7 +353,7 @@ export function openingState(input: {
  * Mirrored by `dw_start_match`; `tests/round-combat.test.ts` holds the two to
  * the same number.
  */
-export const STARTING_HP = 80;
+export const STARTING_HP = 60;
 
 /**
  * Which acquisitions a round demands.

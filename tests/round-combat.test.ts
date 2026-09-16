@@ -47,11 +47,11 @@ const ctx = (over: Partial<CombatContext> = {}): CombatContext => ({
 // ---------------------------------------------------------------------------
 
 describe("the life a match starts with", () => {
-  it("is eighty, in both copies", () => {
-    expect(STARTING_HP).toBe(80);
+  it("is sixty, in both copies", () => {
+    expect(STARTING_HP).toBe(60);
     const start = fn("dw_start_match");
     expect(start, "the database still deals a different life total").toMatch(
-      /select v_match, p\.id, 80, v_credits/,
+      /select v_match, p\.id, 60, v_credits/,
     );
   });
 
@@ -521,12 +521,14 @@ describe("0034 adds behaviour, not schema", () => {
 
   it("owns the definitions it is supposed to own", () => {
     for (const name of [
-      "dw_start_match", "dw_record_acquisition",
+      "dw_record_acquisition",
       "dw_advance_match_phase", "dw_match_tick",
     ]) {
       expect(liveDefinitionOf(name).file, `${name} is not live from 0034`)
         .toBe("0034_s8_round_combat.sql");
     }
+    // dw_start_match superseded by 0036 (HP 80 → 60).
+    expect(liveDefinitionOf("dw_start_match").file).toBe("0036_s8_starting_hp_60.sql");
     // dw_resolve_matchup and dw_match_snapshot are superseded by 0035.
     expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0035_s8_ghost_rounds.sql");
     expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0035_s8_ghost_rounds.sql");
