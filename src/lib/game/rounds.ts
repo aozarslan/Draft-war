@@ -254,13 +254,23 @@ const fail = (code: TransitionErrorCode): TransitionResult => ({
  */
 export function nextPhaseOf(
   phase: MatchPhase,
-  state: Pick<MatchState, "roundNo" | "totalRounds">,
+  state: Pick<MatchState, "roundNo" | "totalRounds"> & {
+    /**
+     * Seats still in the match. Optional, because most callers are asking a
+     * question about the *shape* of the machine rather than about a particular
+     * match — and a caller that does not know cannot be assumed to mean "two".
+     */
+    liveCount?: number;
+  },
 ): MatchPhase | null {
   const options = PHASE_TRANSITIONS[phase];
   if (options.length === 0) return null;
   if (options.length === 1) return options[0];
 
-  // ROUND_END is the only fork, and the round number decides it.
+  // ROUND_END is the only fork. The round number decides it — unless the match
+  // is already decided, in which case there is nobody left to pair and nothing
+  // left to fight, and playing out the remaining rounds is dead air.
+  if (state.liveCount !== undefined && state.liveCount < 2) return "CHAMPIONSHIP";
   return state.roundNo >= state.totalRounds ? "CHAMPIONSHIP" : "ROUND_START";
 }
 
@@ -331,7 +341,19 @@ export function openingState(input: {
   };
 }
 
-export const STARTING_HP = 100;
+/**
+ * The life a player starts a match with.
+ *
+ * Measured against the real battle engine rather than chosen: at 100 a
+ * five-player table loses one player all game and the championship is
+ * four-handed; at 60 one match in eight is decided before the last round. At 80
+ * the final has about three players and eliminations spread across the last
+ * three rounds instead of massing in the first round that allows them.
+ *
+ * Mirrored by `dw_start_match`; `tests/round-combat.test.ts` holds the two to
+ * the same number.
+ */
+export const STARTING_HP = 80;
 
 /**
  * Which acquisitions a round demands.

@@ -3,7 +3,7 @@ import { MAPS } from "./maps";
 import { EVENT_CARDS } from "./events";
 import { BOARD_CAPACITY } from "./rounds";
 import type { BattleResult, BattleMap, Character, EventCard } from "./types";
-import type { BattleTeamInput, SimulateInput } from "./battle";
+import { simulateBattle, type BattleTeamInput, type SimulateInput } from "./battle";
 
 /**
  * ---------------------------------------------------------------------------
@@ -351,6 +351,113 @@ export function buildEncounterInput(
       },
     ]),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Which fights a round still owes
+// ---------------------------------------------------------------------------
+
+/** The little a match has to expose to be fought. */
+export interface FightableMatch {
+  status: string;
+  phase: string;
+  roundNo: number;
+  seed: string;
+  categoryIds: string[];
+  players: { playerId: string; hp: number; eliminatedAt: number | null }[];
+  board: BoardSlot[];
+  acquisitions: { characterId: string; price: number }[];
+  matchups: {
+    roundNo: number;
+    pairingIndex: number;
+    playerA: string;
+    playerB: string | null;
+    battleResult?: unknown | null;
+  }[];
+}
+
+export interface PlannedFight {
+  pairingIndex: number;
+  input: SimulateInput;
+}
+
+export interface CombatPlanDeps {
+  charactersById: Record<string, Character>;
+  bands: SimulateInput["bands"];
+  /** Nickname and formation per seat. */
+  seatOf: (playerId: string) => { nickname: string; formation?: BattleTeamInput["formation"] };
+  /** The catalogue this match drafts from, for the arena's board. */
+  pool: Character[];
+}
+
+/**
+ * The fights this match owes right now, already assembled.
+ *
+ * Pure, so the three questions that decide it can be executed by a test rather
+ * than read out of a source file: is this match at its combat, is this matchup
+ * in *this* round, and has it already been fought. An earlier version left all
+ * three inside the async function that talks to the database, where a mutation
+ * removing any of them changed nothing a test could see.
+ *
+ * A matchup whose input cannot be built is **omitted**, never defaulted — a
+ * fight nobody can assemble is not a fight somebody wins.
+ */
+export function combatPlanFor(match: FightableMatch, deps: CombatPlanDeps): PlannedFight[] {
+  if (match.status !== "ACTIVE") return [];
+  if (match.phase !== "COMBAT" && match.phase !== "FINAL_COMBAT") return [];
+
+  const priceOf = new Map(match.acquisitions.map((a) => [a.characterId, a.price]));
+  const owned = new Set(match.acquisitions.map((a) => a.characterId));
+  const board = (playerId: string) =>
+    fightingBoardOf(match.board, playerId, (id) => priceOf.get(id));
+
+  const live = match.players.filter((p) => p.eliminatedAt === null && p.hp > 0);
+  const arenaPower = medianBoardPowerOf(
+    live.map((p) => board(p.playerId).map((c) => deps.charactersById[c.characterId]?.gamePower ?? 0)),
+  );
+
+  const out: PlannedFight[] = [];
+  for (const m of match.matchups) {
+    // This round only, and only what has not been fought.
+    if (m.roundNo !== match.roundNo) continue;
+    if (m.battleResult !== null && m.battleResult !== undefined) continue;
+
+    const ctx: CombatContext = {
+      matchSeed: match.seed,
+      roundNo: m.roundNo,
+      pairingIndex: m.pairingIndex,
+      categoryIds: match.categoryIds,
+      charactersById: deps.charactersById,
+      bands: deps.bands,
+    };
+    const a = { playerId: m.playerA, ...deps.seatOf(m.playerA), board: board(m.playerA) };
+
+    const built = m.playerB
+      ? buildDuelInput(ctx, a, {
+          playerId: m.playerB, ...deps.seatOf(m.playerB), board: board(m.playerB),
+        })
+      : buildEncounterInput(ctx, a, { targetPower: arenaPower, pool: deps.pool, excluded: owned });
+
+    if (!built.ok) continue;
+    out.push({ pairingIndex: m.pairingIndex, input: built.input });
+  }
+  return out;
+}
+
+/**
+ * One fight, and what it costs.
+ *
+ * The engine is called here rather than in the server layer, so that "the
+ * result came from `simulateBattle`" is a property a test can execute instead
+ * of grep for.
+ */
+export function fightOne(
+  input: SimulateInput,
+  roundNo: number,
+  realPlayerIds: ReadonlySet<string>,
+): { result: BattleResult; outcome: CombatOutcome } {
+  const result = simulateBattle(input);
+  return { result, outcome: outcomeOf(result, roundNo, realPlayerIds) };
 }
 
 // ---------------------------------------------------------------------------

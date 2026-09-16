@@ -7,6 +7,7 @@ import { MAPS, MAPS_BY_ID } from "@/lib/game/maps";
 import { EVENT_CARDS, EVENTS_BY_ID } from "@/lib/game/events";
 import { CATEGORIES, LEGACY_CATEGORY_ID, resolveCategoryVote } from "@/lib/game/categories";
 import { pairRound, pairingInputFor } from "@/lib/game/matchmaking";
+import { combatPlanFor, fightOne } from "@/lib/game/combat";
 import {
   PHASE_SECONDS,
   isMatchPhase,
@@ -177,6 +178,8 @@ export interface MatchSnapshot {
     ratingA: number | null;
     ratingB: number | null;
     reason: string | null;
+    /** The stored fight, or null until it has been resolved. */
+    battleResult: BattleResult | null;
     startedAt: string | null;
     settledAt: string | null;
     winnerPlayerId: string | null;
@@ -364,7 +367,10 @@ export async function advanceMatchPhase(
     throw new EngineError("UNKNOWN_PHASE", "That is not a phase of a match.", 409);
   }
 
-  const to = nextPhaseOf(match.phase, match);
+  const to = nextPhaseOf(match.phase, {
+    ...match,
+    liveCount: match.players.filter((p) => p.eliminatedAt === null && p.hp > 0).length,
+  });
   if (to === null) return null;
 
   const result = await rpcOrThrow("dw_advance_match_phase", {
@@ -386,6 +392,17 @@ export async function advanceMatchPhase(
   // Arriving at a round's draft opens it. Done here rather than in SQL because
   // the queue is selected in TypeScript — the same place, and for the same
   // reason, as the legacy draft's queue.
+  if ((phase === "COMBAT" || phase === "FINAL_COMBAT") && !noop) {
+    try {
+      await resolveRoundCombat(roomId);
+    } catch (err) {
+      // The phase has moved and the fights are recoverable: the guard refuses
+      // to leave COMBAT while any matchup is unresolved, and the next tick
+      // reports NEEDS_COMBAT.
+      console.error("[DRAFT WAR] round combat did not resolve; the tick will retry", err);
+    }
+  }
+
   if (phase === "MATCHMAKING" && !noop) {
     try {
       await pairMatchRound(roomId);
@@ -501,6 +518,54 @@ export async function pairMatchRound(roomId: string): Promise<void> {
       reason: p.reason,
     })),
   });
+}
+
+/**
+ * Fights every unresolved matchup of the round the match is on.
+ *
+ * The engine is the existing `simulateBattle` — seeded, pure and already
+ * replayed frame-aligned across phones. Everything around it comes from
+ * `combat.ts`, which has its own tests, so this function is plumbing: read the
+ * boards the auction produced, hand them over, write the answer down.
+ *
+ * Each matchup is resolved by its own call, and `dw_resolve_matchup` locks the
+ * matchup row rather than the match — two fights in one round do not wait on
+ * each other, and neither can be fought twice.
+ */
+export async function resolveRoundCombat(roomId: string): Promise<void> {
+  const snap = await getSnapshot(roomId);
+  const match = snap.match;
+  if (!match) return;
+
+  const characters = await getCharacters();
+  const charactersById = Object.fromEntries(characters.map((c) => [c.id, c]));
+  const categories = match.categoryIds.length ? match.categoryIds : [LEGACY_CATEGORY_ID];
+  const seatOf = new Map(snap.players.map((p) => [p.id, p]));
+  const realPlayerIds = new Set(match.players.map((p) => p.playerId));
+
+  // Which fights are owed, and their inputs, are decided by a pure function
+  // with its own tests — see `combatPlanFor`.
+  const plan = combatPlanFor(match, {
+    charactersById,
+    bands: computeAxisBands(characters),
+    seatOf: (playerId) => ({
+      nickname: seatOf.get(playerId)?.nickname ?? "\u2014",
+      formation: seatOf.get(playerId)?.formation,
+    }),
+    pool: (await getDraftableCharacters()).filter((c) => categories.includes(c.categoryId)),
+  });
+
+  for (const fight of plan) {
+    const { result, outcome } = fightOne(fight.input, match.roundNo, realPlayerIds);
+    await rpcOrThrow("dw_resolve_matchup", {
+      p_room_id: roomId,
+      p_pairing_index: fight.pairingIndex,
+      p_result: result,
+      p_winner_player_id: outcome.winnerPlayerId,
+      p_loser_player_id: outcome.loserPlayerId,
+      p_damage: outcome.damage,
+    });
+  }
 }
 
 export async function abandonMatch(roomId: string, playerId: string): Promise<void> {
@@ -962,6 +1027,7 @@ export async function tickRoom(roomId: string): Promise<Snapshot> {
       // SQL so the deadline table stays in one file.
       else if (action === "ROUND_AUCTION_COMPLETE") await advanceMatchPhase(roomId, null);
       else if (action === "NEEDS_ROUND_PAIRING") await pairMatchRound(roomId);
+      else if (action === "NEEDS_COMBAT") await resolveRoundCombat(roomId);
     } catch (err) {
       // A losing race is expected here (another client got there first).
       if (!(err instanceof EngineError)) throw err;
