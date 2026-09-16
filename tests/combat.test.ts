@@ -3,20 +3,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DAMAGE_CURVE,
-  ENCOUNTER_NICKNAME,
-  ENCOUNTER_PLAYER_ID,
+  GHOST_PLAYER_PREFIX,
   UPSET_MULTIPLIER,
   battleSeedFor,
   battlefieldFor,
   battlefieldSeedFor,
   buildDuelInput,
-  buildEncounterInput,
   combatProgress,
   damageFor,
-  encounterBoardFor,
-  encounterSeedFor,
   fightingBoardOf,
-  medianBoardPowerOf,
+  ghostSeedFor,
   outcomeOf,
   type CombatContext,
 } from "../src/lib/game/combat";
@@ -40,17 +36,15 @@ import { EVENT_CARDS } from "../src/lib/game/events";
  * always wiped, so the old curve pinned every late loss to its cap and left a
  * four-player table on a median of 3 HP.
  *
- * The encounter opponent is built at the field's median board power because
- * that is where an encounter round costs the same as a duel round. One notch
- * either way is not a nudge: at 0.92x the odd seat wins 87% of its rounds, at
- * 1.08x it wins 6%. That is why `encounterBoardFor` is tested against the real
- * engine here rather than trusted.
+ * The ghost board is used for odd-seat rounds: the bye player fights a copy of
+ * another live player's board, chosen deterministically from the match seed.
+ * The ghost owner's HP is never touched — `outcomeOf` treats `"ghost:{id}"`
+ * as a non-real player id.
  */
 
 const ROOT = process.cwd();
 const BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 const BANDS = computeAxisBands(CHARACTERS);
-const POOL = CHARACTERS.filter((c) => c.categoryId === "marvel" || c.categoryId === "dc");
 
 const ctx = (over: Partial<CombatContext> = {}): CombatContext => ({
   matchSeed: "seed-abc",
@@ -168,9 +162,9 @@ describe("the same fight, every time", () => {
     expect(battleSeedFor("a", 3, 0)).not.toBe(battleSeedFor("b", 3, 0));
   });
 
-  it("keeps the arena, the fight and the battlefield in separate namespaces", () => {
+  it("keeps the ghost, the fight and the battlefield in separate namespaces", () => {
     const a = battleSeedFor("s", 3, 0);
-    const b = encounterSeedFor("s", 3, 0);
+    const b = ghostSeedFor("s", 3, 0);
     const c = battlefieldSeedFor("s", 3);
     expect(new Set([a, b, c]).size).toBe(3);
   });
@@ -250,117 +244,6 @@ describe("the board that fights", () => {
   });
 });
 
-describe("how strong the arena is", () => {
-  it("takes the median of each seat's average, not the sum", () => {
-    // A seat with three good fighters is compared on quality, not punished for
-    // having fewer than five.
-    expect(medianBoardPowerOf([[90, 90, 90], [50, 50, 50, 50, 50], [70, 70]])).toBe(70);
-  });
-
-  it("is the median and not the mean", () => {
-    // Chosen so the two answers differ: averages [60, 62, 64, 98] have a median
-    // of 64 and a mean of 71. An example where they coincide proves nothing,
-    // and the earlier version of this test used one.
-    const boards = [[60], [62], [64], [98]];
-    expect(medianBoardPowerOf(boards)).toBe(64);
-    const mean = boards.reduce((s, b) => s + b[0], 0) / boards.length;
-    expect(mean).toBe(71);
-    expect(medianBoardPowerOf(boards)).not.toBe(mean);
-  });
-
-  it("is not dragged up by one runaway board", () => {
-    // Three ordinary seats and one monster. The median must barely move; a mean
-    // would climb nine points and send the arena after everybody.
-    const ordinary = [[60], [64], [68]];
-    const withMonster = [...ordinary, [100]];
-    expect(medianBoardPowerOf(ordinary)).toBe(64);
-    expect(medianBoardPowerOf(withMonster)).toBe(68);
-    expect(medianBoardPowerOf(withMonster) - medianBoardPowerOf(ordinary)).toBeLessThanOrEqual(4);
-    const mean = 73;
-    expect(medianBoardPowerOf(withMonster), "a mean crept in").not.toBe(mean);
-  });
-
-  it("ignores seats with nothing drafted", () => {
-    expect(medianBoardPowerOf([[80], [], [80]])).toBe(80);
-    expect(medianBoardPowerOf([])).toBe(0);
-  });
-});
-
-describe("the board the arena brings", () => {
-  const base = { targetPower: 80, size: 5, pool: POOL, excluded: new Set<string>() };
-
-  it("is the same board for the same seed", () => {
-    const once = encounterBoardFor({ ...base, seed: "e1" });
-    for (let i = 0; i < 200; i++) {
-      expect(encounterBoardFor({ ...base, seed: "e1" })).toEqual(once);
-    }
-  });
-
-  it("changes with the seed", () => {
-    const seen = new Set(
-      ["e1", "e2", "e3", "e4", "e5", "e6"].map((seed) =>
-        encounterBoardFor({ ...base, seed }).map((c) => c.characterId).sort().join(","),
-      ),
-    );
-    expect(seen.size).toBeGreaterThan(1);
-  });
-
-  it("does not depend on the order the catalogue arrives in", () => {
-    const forwards = encounterBoardFor({ ...base, seed: "e1" });
-    const backwards = encounterBoardFor({ ...base, seed: "e1", pool: [...POOL].reverse() });
-    expect(backwards).toEqual(forwards);
-  });
-
-  it("fields nobody the match has already sold", () => {
-    const owned = new Set(POOL.slice(0, 40).map((c) => c.id));
-    const board = encounterBoardFor({ ...base, seed: "e1", excluded: owned });
-    for (const c of board) expect(owned.has(c.characterId)).toBe(false);
-  });
-
-  it("aims at the power it was given", () => {
-    // Targets inside the pool's own range. A target is always the average of
-    // real characters' power, so in play it is always in range by construction.
-    for (const target of [68, 75, 82, 88]) {
-      const board = encounterBoardFor({ ...base, seed: "aim", targetPower: target });
-      const avg = board.reduce((s, c) => s + BY_ID[c.characterId].gamePower, 0) / board.length;
-      expect(Math.abs(avg - target), `target ${target} produced ${avg}`).toBeLessThan(8);
-    }
-  });
-
-  it("gets as close as the catalogue allows when asked for the impossible", () => {
-    // Marvel + DC bottoms out at 63. Asked for 20, the arena fields the weakest
-    // it has rather than refusing or inventing — and that is worth pinning,
-    // because the calibration table says an arena 8% too strong wins 94% of its
-    // rounds. In play the target is an average of real characters and cannot be
-    // out of range; this is the guard for the day that stops being true.
-    const weakest = encounterBoardFor({ ...base, seed: "aim", targetPower: 20 });
-    const avg = weakest.reduce((s, c) => s + BY_ID[c.characterId].gamePower, 0) / weakest.length;
-    const poolMin = Math.min(...POOL.map((c) => c.gamePower));
-    expect(avg).toBeLessThan(poolMin + 8);
-    expect(avg).toBeGreaterThanOrEqual(poolMin);
-  });
-
-  it("fields exactly as many fighters as it was asked for", () => {
-    for (const size of [1, 2, 3, 4, 5]) {
-      expect(encounterBoardFor({ ...base, seed: "n", size })).toHaveLength(size);
-    }
-    // And never more than a board holds, whatever it is asked for.
-    expect(encounterBoardFor({ ...base, seed: "n", size: 9 })).toHaveLength(BOARD_CAPACITY);
-    expect(encounterBoardFor({ ...base, seed: "n", size: 0 })).toHaveLength(1);
-  });
-
-  it("returns nothing rather than repeating itself when the pool is empty", () => {
-    const all = new Set(POOL.map((c) => c.id));
-    expect(encounterBoardFor({ ...base, seed: "e", excluded: all })).toEqual([]);
-  });
-
-  it("never fields the same character twice", () => {
-    for (const seed of ["d1", "d2", "d3", "d4"]) {
-      const ids = encounterBoardFor({ ...base, seed }).map((c) => c.characterId);
-      expect(new Set(ids).size).toBe(ids.length);
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Battle input
@@ -404,87 +287,6 @@ describe("assembling a duel", () => {
   });
 });
 
-describe("assembling an encounter", () => {
-  const seat = { playerId: "a", nickname: "Ali", board: boardOf(MARVEL.slice(0, 5)) };
-  const arena = { targetPower: 80, pool: POOL, excluded: new Set(MARVEL.slice(0, 5)) };
-
-  it("fields the arena opposite the seat", () => {
-    const built = buildEncounterInput(ctx(), seat, arena);
-    expect(built.ok).toBe(true);
-    if (!built.ok) return;
-    expect(built.input.teams[0].playerId).toBe("a");
-    expect(built.input.teams[1].playerId).toBe(ENCOUNTER_PLAYER_ID);
-    expect(built.input.teams[1].nickname).toBe(ENCOUNTER_NICKNAME);
-  });
-
-  it("matches the seat's own board size", () => {
-    for (const size of [1, 3, 5]) {
-      const built = buildEncounterInput(
-        ctx(), { ...seat, board: boardOf(MARVEL.slice(0, size)) },
-        { ...arena, excluded: new Set(MARVEL.slice(0, size)) },
-      );
-      if (!built.ok) throw new Error("input did not build");
-      expect(built.input.teams[1].characters).toHaveLength(size);
-    }
-  });
-
-  it("gives the arena no formation advantage", () => {
-    const built = buildEncounterInput(ctx(), seat, arena);
-    if (!built.ok) throw new Error("input did not build");
-    expect(built.input.teams[1].formation).toBe("BALANCED");
-  });
-
-  it("never fields a character somebody at the table owns", () => {
-    const owned = new Set([...MARVEL.slice(0, 30), ...DC.slice(0, 30)]);
-    const built = buildEncounterInput(ctx(), seat, { ...arena, excluded: owned });
-    if (!built.ok) throw new Error("input did not build");
-    for (const c of built.input.teams[1].characters) {
-      expect(owned.has(c.characterId)).toBe(false);
-    }
-  });
-
-  it("refuses rather than inventing an opponent from nothing", () => {
-    const nobody = { ...arena, excluded: new Set(POOL.map((c) => c.id)) };
-    expect(buildEncounterInput(ctx(), seat, nobody)).toMatchObject({ ok: false, code: "NO_POOL" });
-    expect(buildEncounterInput(ctx(), { ...seat, board: [] }, arena))
-      .toMatchObject({ ok: false, code: "EMPTY_BOARD" });
-  });
-
-  it("is the same encounter every time", () => {
-    const built = buildEncounterInput(ctx(), seat, arena);
-    if (!built.ok) throw new Error("input did not build");
-    const first = JSON.stringify(simulateBattle(built.input));
-    for (let i = 0; i < 300; i++) {
-      expect(JSON.stringify(simulateBattle(built.input))).toBe(first);
-    }
-  });
-
-  it("is a fair fight at the field's median power", () => {
-    // The calibration the whole odd-seat rule rests on. At 0.92x the seat wins
-    // 87% of these; at 1.08x it wins 6%. Measured here against the real engine
-    // rather than trusted, because the knob is that steep.
-    let seatWins = 0;
-    const rounds = 240;
-    for (let i = 0; i < rounds; i++) {
-      const size = 5;
-      const own = MARVEL.slice(i % 20, (i % 20) + size);
-      const s = { playerId: "a", nickname: "Ali", board: boardOf(own) };
-      const target = own.reduce((sum, id) => sum + BY_ID[id].gamePower, 0) / own.length;
-      const built = buildEncounterInput(
-        ctx({ matchSeed: `cal-${i}`, roundNo: (i % 8) + 1 }),
-        s,
-        { targetPower: target, pool: POOL, excluded: new Set(own) },
-      );
-      if (!built.ok) continue;
-      if (simulateBattle(built.input).winnerPlayerId === "a") seatWins++;
-    }
-    const winRate = (seatWins / rounds) * 100;
-    expect(winRate, `the arena is miscalibrated: seat won ${winRate.toFixed(1)}%`)
-      .toBeGreaterThan(30);
-    expect(winRate, `the arena is miscalibrated: seat won ${winRate.toFixed(1)}%`)
-      .toBeLessThan(70);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Reading a result

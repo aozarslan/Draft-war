@@ -30,11 +30,11 @@ import { simulateBattle, type BattleTeamInput, type SimulateInput } from "./batt
  * the fight was — and lands a match on a median of 38 HP with about one
  * elimination.
  *
- * **The encounter opponent.** Built at the field's median board power, because
- * that is where an encounter round costs the same as a duel round (−1.2 HP at
- * three players, +0.2 at five). The knob is unforgiving: at 0.92× the odd seat
- * wins 87% of the time, at 1.08× it wins 6%. That sensitivity is why
- * `encounterBoardFor` has its own tests rather than a comment promising care.
+ * **The ghost board.** When the table has an odd number of live seats, the
+ * round still has no free rounds: the odd seat fights a copy of another live
+ * player's board. The ghost is chosen from the match seed so the same input
+ * always produces the same fight, and the ghost owner's HP is never touched —
+ * `outcomeOf` treats `"ghost:{realId}"` as a non-real player id.
  */
 
 // ---------------------------------------------------------------------------
@@ -119,9 +119,15 @@ export function battleSeedFor(matchSeed: string, roundNo: number, pairingIndex: 
   return `${matchSeed}:${roundNo}:${pairingIndex}`;
 }
 
-/** The arena's own board. A different namespace, so it cannot shadow the fight. */
-export function encounterSeedFor(matchSeed: string, roundNo: number, pairingIndex: number): string {
-  return `encounter:${matchSeed}:${roundNo}:${pairingIndex}`;
+/**
+ * Which live player's board the odd seat copies.
+ *
+ * A different namespace from the fight seed, so changing one cannot accidentally
+ * change the other. The ghost is chosen with a single seeded shuffle, so the
+ * same seed always produces the same ghost whatever order the candidates arrive in.
+ */
+export function ghostSeedFor(matchSeed: string, roundNo: number, pairingIndex: number): string {
+  return `ghost:${matchSeed}:${roundNo}:${pairingIndex}`;
 }
 
 /** One battlefield per round, shared by every matchup in it. */
@@ -177,77 +183,28 @@ export function fightingBoardOf(
 }
 
 /**
- * The player id the arena fights under.
+ * The marker prefix that distinguishes a ghost player from a real seat.
  *
- * Reserved, and never written to `round_matchups.player_b`, which is a foreign
- * key to a real seat. It exists only inside the stored `BattleResult`, where the
- * replay needs *some* id to hang the other side of the arena on.
+ * A ghost fight copies one live player's board. The ghost's id inside the
+ * `BattleResult` is `"ghost:{realPlayerId}"` — not a foreign key, so it is
+ * never written to a column that references `players`. `outcomeOf` checks
+ * `realPlayerIds.has(...)`, which excludes this prefix, so:
+ *   - a ghost win → `winnerPlayerId = null`, no credits for the ghost owner
+ *   - a real win → `winnerPlayerId = byePlayer`, `round_wins++` for the bye seat
+ *   - a ghost win over the real seat → `loserPlayerId = byePlayer`, damage applied
  */
-export const ENCOUNTER_PLAYER_ID = "encounter";
-export const ENCOUNTER_NICKNAME = "The Arena";
+export const GHOST_PLAYER_PREFIX = "ghost:";
 
-/**
- * How strong the arena is: the median of each live seat's average board power.
- *
- * The median rather than the mean, so one runaway board does not drag the
- * arena up for everybody, and the *average* per seat rather than the sum, so a
- * player with three fighters is compared on quality rather than punished for
- * having fewer.
- */
-export function medianBoardPowerOf(boards: number[][]): number {
-  const averages = boards
-    .filter((b) => b.length > 0)
-    .map((b) => b.reduce((sum, p) => sum + p, 0) / b.length)
-    .sort((a, b) => a - b);
-  if (averages.length === 0) return 0;
-  return averages[Math.floor(averages.length / 2)];
-}
-
-export interface EncounterBoardInput {
-  seed: string;
-  /** The power to aim at. See `medianBoardPowerOf`. */
-  targetPower: number;
-  /** How many fighters to field. Never more than the board can hold. */
-  size: number;
-  /** The catalogue this match is drafting from. */
-  pool: Character[];
-  /** Everything the match has already sold. The arena never fields those. */
-  excluded: ReadonlySet<string>;
-}
-
-/**
- * The board the arena brings.
- *
- * Deterministic in its seed and stable under the order `pool` arrives in: the
- * candidates are ranked by distance from the target power with the character id
- * as the tie-break, and only then shuffled. A shuffle over an unstably ordered
- * list would be a different arena on two machines.
- *
- * Characters the match has already sold are excluded, because the arena
- * fielding somebody's own draft pick reads as a bug even when it is not.
- */
-export function encounterBoardFor(
-  input: EncounterBoardInput,
-): { characterId: string; price: number }[] {
-  const size = Math.max(1, Math.min(BOARD_CAPACITY, Math.floor(input.size)));
-
-  const candidates = input.pool
-    .filter((c) => !input.excluded.has(c.id))
-    .sort(
-      (a, b) =>
-        Math.abs(a.gamePower - input.targetPower) - Math.abs(b.gamePower - input.targetPower) ||
-        a.id.localeCompare(b.id),
-    );
-
-  if (candidates.length === 0) return [];
-
-  // A window three times the board, so the arena is not the same five
-  // characters every time it appears at the same power.
-  const window = candidates.slice(0, Math.min(candidates.length, size * 3));
-  return createRng(input.seed)
-    .shuffle(window)
-    .slice(0, size)
-    .map((c, i) => ({ characterId: c.id, price: i + 1 }));
+/** Pick one live player's id to ghost, deterministically. */
+function pickGhostPlayerId(
+  matchSeed: string,
+  roundNo: number,
+  pairingIndex: number,
+  candidates: string[],
+): string {
+  // Sort first so the order callers pass candidates in does not matter.
+  const sorted = [...candidates].sort();
+  return createRng(ghostSeedFor(matchSeed, roundNo, pairingIndex)).shuffle(sorted)[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -311,48 +268,6 @@ export function buildDuelInput(
   };
 }
 
-/** One seat against a board the server builds. */
-export function buildEncounterInput(
-  ctx: CombatContext,
-  seat: Combatant,
-  arena: { targetPower: number; pool: Character[]; excluded: ReadonlySet<string> },
-): BattleInput {
-  if (seat.board.length === 0) {
-    return { ok: false, code: "EMPTY_BOARD", message: "A side has nobody to field." };
-  }
-
-  const board = encounterBoardFor({
-    seed: encounterSeedFor(ctx.matchSeed, ctx.roundNo, ctx.pairingIndex),
-    targetPower: arena.targetPower,
-    size: seat.board.length,
-    pool: arena.pool,
-    excluded: arena.excluded,
-  });
-
-  if (board.length === 0) {
-    return {
-      ok: false,
-      code: "NO_POOL",
-      message: "There is nobody left for the arena to field.",
-    };
-  }
-
-  return {
-    ok: true,
-    input: baseInput(ctx, [
-      { playerId: seat.playerId, nickname: seat.nickname, characters: seat.board, formation: seat.formation },
-      {
-        playerId: ENCOUNTER_PLAYER_ID,
-        nickname: ENCOUNTER_NICKNAME,
-        characters: board,
-        // The arena has no opinion about formation, and giving it one would be
-        // a hidden thumb on the scale.
-        formation: "BALANCED",
-      },
-    ]),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Which fights a round still owes
 // ---------------------------------------------------------------------------
@@ -379,6 +294,12 @@ export interface FightableMatch {
 export interface PlannedFight {
   pairingIndex: number;
   input: SimulateInput;
+  /**
+   * The real player id whose board was copied for a ghost round.
+   * Null for ordinary duels. Stored in `round_matchups.ghost_player_id` so the
+   * replay and the UI know whose board the odd seat faced.
+   */
+  ghostPlayerId: string | null;
 }
 
 export interface CombatPlanDeps {
@@ -386,8 +307,6 @@ export interface CombatPlanDeps {
   bands: SimulateInput["bands"];
   /** Nickname and formation per seat. */
   seatOf: (playerId: string) => { nickname: string; formation?: BattleTeamInput["formation"] };
-  /** The catalogue this match drafts from, for the arena's board. */
-  pool: Character[];
 }
 
 /**
@@ -407,14 +326,10 @@ export function combatPlanFor(match: FightableMatch, deps: CombatPlanDeps): Plan
   if (match.phase !== "COMBAT" && match.phase !== "FINAL_COMBAT") return [];
 
   const priceOf = new Map(match.acquisitions.map((a) => [a.characterId, a.price]));
-  const owned = new Set(match.acquisitions.map((a) => a.characterId));
   const board = (playerId: string) =>
     fightingBoardOf(match.board, playerId, (id) => priceOf.get(id));
 
   const live = match.players.filter((p) => p.eliminatedAt === null && p.hp > 0);
-  const arenaPower = medianBoardPowerOf(
-    live.map((p) => board(p.playerId).map((c) => deps.charactersById[c.characterId]?.gamePower ?? 0)),
-  );
 
   const out: PlannedFight[] = [];
   for (const m of match.matchups) {
@@ -432,14 +347,38 @@ export function combatPlanFor(match: FightableMatch, deps: CombatPlanDeps): Plan
     };
     const a = { playerId: m.playerA, ...deps.seatOf(m.playerA), board: board(m.playerA) };
 
-    const built = m.playerB
-      ? buildDuelInput(ctx, a, {
-          playerId: m.playerB, ...deps.seatOf(m.playerB), board: board(m.playerB),
-        })
-      : buildEncounterInput(ctx, a, { targetPower: arenaPower, pool: deps.pool, excluded: owned });
+    let built: BattleInput;
+    let ghostPlayerId: string | null = null;
+
+    if (m.playerB) {
+      // Ordinary duel — both seats are real.
+      built = buildDuelInput(ctx, a, {
+        playerId: m.playerB, ...deps.seatOf(m.playerB), board: board(m.playerB),
+      });
+    } else {
+      // Ghost round — the odd seat fights a copy of another live player's board.
+      // The ghost is chosen deterministically so the same seed always produces
+      // the same fight; the ghost owner's HP and stats are never touched.
+      const candidates = live
+        .filter((p) => p.playerId !== m.playerA)
+        .map((p) => p.playerId);
+      if (candidates.length === 0) continue; // sole survivor — match should have ended
+      const realGhostId = pickGhostPlayerId(match.seed, m.roundNo, m.pairingIndex, candidates);
+      ghostPlayerId = realGhostId;
+      const ghostBoard = board(realGhostId);
+      if (ghostBoard.length === 0) continue; // ghost has not drafted yet
+      built = buildDuelInput(ctx, a, {
+        // The prefixed id is never stored as a foreign key — it lives only inside
+        // the BattleResult, where the replay needs an id for the other side.
+        playerId: `${GHOST_PLAYER_PREFIX}${realGhostId}`,
+        nickname: `${deps.seatOf(realGhostId).nickname} (ghost)`,
+        formation: deps.seatOf(realGhostId).formation,
+        board: ghostBoard,
+      });
+    }
 
     if (!built.ok) continue;
-    out.push({ pairingIndex: m.pairingIndex, input: built.input });
+    out.push({ pairingIndex: m.pairingIndex, input: built.input, ghostPlayerId });
   }
   return out;
 }

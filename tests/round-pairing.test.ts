@@ -64,8 +64,9 @@ describe("which migration owns which function", () => {
     // again, along with the tick and the snapshot, for round combat.
     expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0034_s8_round_combat.sql");
     expect(liveDefinitionOf("dw_match_tick").file).toBe("0034_s8_round_combat.sql");
-    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0034_s8_round_combat.sql");
-    expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0034_s8_round_combat.sql");
+    // dw_match_snapshot and dw_resolve_matchup are superseded by 0035 (ghost rounds).
+    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0035_s8_ghost_rounds.sql");
+    expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0035_s8_ghost_rounds.sql");
   });
 });
 

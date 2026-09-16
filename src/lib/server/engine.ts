@@ -178,6 +178,11 @@ export interface MatchSnapshot {
     ratingA: number | null;
     ratingB: number | null;
     reason: string | null;
+    /**
+     * The real player whose board the odd seat copied.
+     * Null for ordinary duels and for rows written before 0035.
+     */
+    ghostPlayerId: string | null;
     /** The stored fight, or null until it has been resolved. */
     battleResult: BattleResult | null;
     startedAt: string | null;
@@ -552,7 +557,6 @@ export async function resolveRoundCombat(roomId: string): Promise<void> {
       nickname: seatOf.get(playerId)?.nickname ?? "\u2014",
       formation: seatOf.get(playerId)?.formation,
     }),
-    pool: (await getDraftableCharacters()).filter((c) => categories.includes(c.categoryId)),
   });
 
   for (const fight of plan) {
@@ -564,6 +568,7 @@ export async function resolveRoundCombat(roomId: string): Promise<void> {
       p_winner_player_id: outcome.winnerPlayerId,
       p_loser_player_id: outcome.loserPlayerId,
       p_damage: outcome.damage,
+      p_ghost_player_id: fight.ghostPlayerId,
     });
   }
 }

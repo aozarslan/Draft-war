@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { liveDefinitionOf } from "./support/migrations";
 import { STARTING_HP, ELIMINATION_FROM_ROUND, nextPhaseOf, type MatchPhase } from "../src/lib/game/rounds";
 import {
-  DAMAGE_CURVE, ENCOUNTER_PLAYER_ID, buildDuelInput, combatPlanFor, damageFor,
+  DAMAGE_CURVE, GHOST_PLAYER_PREFIX, buildDuelInput, combatPlanFor, damageFor,
   fightOne, fightingBoardOf, outcomeOf, type CombatContext,
 } from "../src/lib/game/combat";
 import { computeAxisBands, computeSynergy, simulateBattle } from "../src/lib/game/battle";
@@ -91,12 +91,13 @@ describe("the damage comes from the winner's remaining health", () => {
     );
   });
 
-  it("charges nobody when a seat beats the arena", () => {
+  it("charges nobody when a seat beats a non-real opponent (ghost or arena)", () => {
+    const ghostId = `${GHOST_PLAYER_PREFIX}some-player`;
     const out = outcomeOf(
       {
         teams: [
           { playerId: "a", remainingHpPct: 60 } as never,
-          { playerId: ENCOUNTER_PLAYER_ID, remainingHpPct: 0 } as never,
+          { playerId: ghostId, remainingHpPct: 0 } as never,
         ],
         winnerPlayerId: "a", upset: false,
       },
@@ -161,7 +162,7 @@ describe("what a loss costs", () => {
   const resolve = fn("dw_resolve_matchup");
 
   it("never takes a life total below zero", () => {
-    expect(resolve).toMatch(/hp = greatest\(v_floor, hp - greatest\(0, coalesce\(p_damage, 0\)\)\)/);
+    expect(resolve).toMatch(/hp\s*= greatest\(v_floor, hp - greatest\(0, coalesce\(p_damage, 0\)\)\)/);
   });
 
   it("floors at one before the elimination round", () => {
@@ -400,7 +401,6 @@ describe("a round owes exactly the fights it has not had", () => {
   const deps = {
     charactersById: BY_ID, bands: BANDS,
     seatOf: (id: string) => ({ nickname: id.toUpperCase() }),
-    pool: CHARACTERS.filter((c) => c.categoryId === "marvel" || c.categoryId === "dc"),
   };
 
   it("plans this round's unfought matchup and nothing else", () => {
@@ -440,14 +440,17 @@ describe("a round owes exactly the fights it has not had", () => {
     expect(combatPlanFor(noBoard as never, deps as never)).toEqual([]);
   });
 
-  it("builds the arena for an odd seat", () => {
+  it("builds a ghost fight for an odd seat", () => {
     const odd = {
       ...base,
       matchups: [{ roundNo: 3, pairingIndex: 0, playerA: "a", playerB: null, battleResult: null }],
     };
     const plan = combatPlanFor(odd as never, deps as never);
     expect(plan).toHaveLength(1);
-    expect(plan[0].input.teams[1].playerId).toBe(ENCOUNTER_PLAYER_ID);
+    // The ghost side's playerId starts with the ghost prefix.
+    expect(plan[0].input.teams[1].playerId).toMatch(new RegExp(`^${GHOST_PLAYER_PREFIX}`));
+    // The fight records which real player was ghosted.
+    expect(plan[0].ghostPlayerId).not.toBeNull();
   });
 
   it("is the same plan every time", () => {
@@ -518,12 +521,15 @@ describe("0034 adds behaviour, not schema", () => {
 
   it("owns the definitions it is supposed to own", () => {
     for (const name of [
-      "dw_resolve_matchup", "dw_start_match", "dw_record_acquisition",
-      "dw_advance_match_phase", "dw_match_tick", "dw_match_snapshot",
+      "dw_start_match", "dw_record_acquisition",
+      "dw_advance_match_phase", "dw_match_tick",
     ]) {
       expect(liveDefinitionOf(name).file, `${name} is not live from 0034`)
         .toBe("0034_s8_round_combat.sql");
     }
+    // dw_resolve_matchup and dw_match_snapshot are superseded by 0035.
+    expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0035_s8_ghost_rounds.sql");
+    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0035_s8_ghost_rounds.sql");
   });
 
   it("hands the stored fight back to the client", () => {
