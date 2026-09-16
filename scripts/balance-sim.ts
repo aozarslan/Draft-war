@@ -35,7 +35,7 @@ import { pairRound, type PairRoundInput } from "../src/lib/game/matchmaking";
 
 // ADIM 3 validation: HP=60 fixed. Full sweep re-enabled by editing this array.
 const HP_VALUES = [60] as const;
-const PLAYER_COUNTS = [2, 3, 4, 5] as const;
+const PLAYER_COUNTS = [2, 3, 4, 5, 6] as const;
 const TOTAL_ROUNDS = STANDARD_MATCH_ROUNDS; // 8
 const MATCH_COUNT = 100; // per combination
 
@@ -48,6 +48,7 @@ const CATEGORY_SETS: Record<number, string[]> = {
   3: ["marvel", "dc", "football"],
   4: ["marvel", "dc", "football", "basketball"],
   5: ["marvel", "dc", "football", "basketball", "animals"],
+  6: ["marvel", "dc", "football", "basketball", "animals", "anime"],
 };
 
 // ---------------------------------------------------------------------------
