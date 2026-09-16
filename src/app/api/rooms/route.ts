@@ -40,8 +40,8 @@ export async function POST(request: Request) {
       categories,
       // A host who picked nothing has to settle it in the lobby.
       categoryMode: categories.length === 0 && categoryMode === "HOST" ? "HOST" : categoryMode,
-      // Two to five players; five is the standard game.
-      maxPlayers: Math.min(Math.max(body.config?.maxPlayers ?? DEFAULT_CONFIG.maxPlayers, 2), 5),
+      // Two to six players; five is the standard game.
+      maxPlayers: Math.min(Math.max(body.config?.maxPlayers ?? DEFAULT_CONFIG.maxPlayers, 2), 6),
       // Credits and roster size are fixed for now. The plumbing is here so
       // they can be opened up later without another migration.
       startingCredits: DEFAULT_CONFIG.startingCredits,

@@ -150,8 +150,8 @@ export async function POST(
       case "SET_MAX_PLAYERS": {
         if (!isHost) return errorResponse("NOT_HOST", "Only the host can do that.", 403);
         const max = Math.round(Number(action.maxPlayers));
-        if (!Number.isFinite(max) || max < 2 || max > 5) {
-          return errorResponse("BAD_SIZE", "A room holds between 2 and 5 players.");
+        if (!Number.isFinite(max) || max < 2 || max > 6) {
+          return errorResponse("BAD_SIZE", "A room holds between 2 and 6 players.");
         }
         const result = await rpcOrThrow("dw_set_max_players", {
           p_room_id: roomId,

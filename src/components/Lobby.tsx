@@ -15,7 +15,7 @@ const CATEGORY_MODES = [
   { id: "RANDOM", label: "Surprise us", hint: "Drawn at random" },
 ] as const;
 
-const ROOM_SIZES = [2, 3, 4, 5] as const;
+const ROOM_SIZES = [2, 3, 4, 5, 6] as const;
 
 export function Lobby({ store }: { store: RoomStore }) {
   const { snapshot, me, act } = store;
@@ -240,7 +240,7 @@ export function Lobby({ store }: { store: RoomStore }) {
           >
             Max players
           </SectionTitle>
-          <div className="grid grid-cols-4 gap-2 px-4 pb-4">
+          <div className="grid grid-cols-5 gap-2 px-4 pb-4">
             {ROOM_SIZES.map((n) => {
               const on = room.config.maxPlayers === n;
               const tooSmall = n < players.length;
