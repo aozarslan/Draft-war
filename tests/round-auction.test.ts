@@ -349,11 +349,22 @@ describe("a player buys once per round, and a character sells once per match", (
     expect(record).toContain("insert into board_slots");
   });
 
-  it("leaves the earlier board alone when a new character lands", () => {
+  it("never removes a character from a squad when a new one lands", () => {
+    // 0034 deliberately started re-ranking the squad so the strongest five
+    // fight — before that, the first five bought were the only five that ever
+    // could, and rounds six to eight bought nothing. What must still hold is
+    // that a purchase never *loses* anybody: the rebalance may move a character
+    // between the board and the bench, and may never delete a row or rewrite
+    // whose character it is.
     const record = fn("dw_record_acquisition");
     expect(record).toContain("on conflict (match_id, player_id, character_id) do nothing");
-    expect(record).not.toMatch(/delete from board_slots/);
-    expect(record).not.toMatch(/update board_slots/);
+    expect(record, "a purchase can delete a character").not.toMatch(/delete from board_slots/);
+
+    const rebalance = record.match(/update board_slots[\s\S]*?;/)?.[0] ?? "";
+    expect(rebalance, "the rebalance is missing").toBeTruthy();
+    const assignments = [...rebalance.matchAll(/^\s*(?:set )?(\w+) =/gm)].map((m) => m[1]);
+    expect(assignments.sort(), "the rebalance writes something other than position")
+      .toEqual(["slot", "updated_at", "zone"]);
   });
 });
 

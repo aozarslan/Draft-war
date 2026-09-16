@@ -615,14 +615,21 @@ describe("the boundaries of S8.5a", () => {
   });
 
   it("does not apply HP — that belongs to the transaction that writes it", () => {
-    // Computing the damage here and applying it here would be two sources of
-    // truth for the same number, one of which is not in the transaction.
-    expect(code).not.toMatch(/clampHp|eliminated|hp\s*-=/);
+    // Reading who is still alive is fine and necessary; *writing* a life total
+    // here would be a second source of truth for the same number, and one of
+    // them would be outside the transaction that stores the result.
+    expect(code, "combat clamps a life total").not.toMatch(/clampHp/);
+    expect(code, "combat assigns a life total").not.toMatch(/\bhp\s*(-=|\+=|=[^=])/);
+    expect(code, "combat writes an elimination").not.toMatch(/eliminatedAt\s*=[^=]/);
   });
 
-  it("does not re-implement the engine", () => {
-    expect(code).not.toContain("simulateBattle");
-    expect(code).not.toMatch(/combatValue|projectAxes|computeSynergy/);
+  it("calls the engine without re-implementing it", () => {
+    // `fightOne` runs the fight on purpose, so that "the result came from
+    // simulateBattle" is a property a test can execute rather than grep for.
+    // What must never appear is a second copy of the maths.
+    expect(code).toContain("simulateBattle(input)");
+    expect(code, "the engine's own maths was copied")
+      .not.toMatch(/combatValue|projectAxes|computeSynergy|applyFormation/);
   });
 
   it("leaves the rules version alone", () => {

@@ -60,9 +60,12 @@ describe("which migration owns which function", () => {
     // advance from 0032 to close a guard hole — but it must not break the
     // tests that read it.
     expect(liveDefinitionOf("dw_pair_round").file).toBe("0032_s8_round_pairing.sql");
-    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0032_s8_round_pairing.sql");
-    expect(liveDefinitionOf("dw_match_tick").file).toBe("0032_s8_round_pairing.sql");
-    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0033_s8_auction_guard.sql");
+    // 0033 took the phase advance to close the draft guard hole; 0034 took it
+    // again, along with the tick and the snapshot, for round combat.
+    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0034_s8_round_combat.sql");
+    expect(liveDefinitionOf("dw_match_tick").file).toBe("0034_s8_round_combat.sql");
+    expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0034_s8_round_combat.sql");
+    expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0034_s8_round_combat.sql");
   });
 });
 
