@@ -550,7 +550,9 @@ export function AuctionStage({
                 return (
                   <li
                     key={i}
-                    className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1.5 text-sm"
+                    className={`flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1.5 text-sm transition ${c ? "cursor-pointer hover:border-white/25 hover:bg-white/[0.03]" : ""}`}
+                    onClick={c ? () => setDetail(c) : undefined}
+                    role={c ? "button" : undefined}
                   >
                     <span className="w-4 text-white/25">{i + 1}</span>
                     {c ? (
@@ -574,7 +576,7 @@ export function AuctionStage({
         </div>
       </div>
 
-      <CharacterModal character={detail} onClose={() => setDetail(null)} />
+      <CharacterModal character={detail} onClose={() => setDetail(null)} nonBlocking />
     </>
   );
 }

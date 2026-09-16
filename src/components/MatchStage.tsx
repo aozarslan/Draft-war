@@ -86,6 +86,40 @@ export function MatchStage({
             {phase ? PHASE_LABELS[phase] : match.phase}
           </p>
 
+          {/* ---- Persistent HP strip ------------------------------------ */}
+          {!finished && match.roundNo > 0 ? (
+            <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+              {match.players.map((mp) => {
+                const player = byId.get(mp.playerId);
+                const color = playerColor(player?.colorIndex ?? 0).hex;
+                const out = mp.eliminatedAt !== null || mp.hp <= 0;
+                return (
+                  <div
+                    key={mp.playerId}
+                    className="flex items-center gap-1.5"
+                    style={{ opacity: out ? 0.4 : 1 }}
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: color }}
+                      aria-hidden
+                    />
+                    <span className="max-w-[72px] truncate text-[11px] font-bold text-white/65">
+                      {player?.nickname ?? "?"}
+                    </span>
+                    {out ? (
+                      <span className="text-[11px] font-black text-rose-400/60">OUT</span>
+                    ) : (
+                      <span className="text-[11px] font-black tabular-nums text-rose-300">
+                        ❤️{mp.hp}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
           {match.phaseDeadline && !finished ? (
             <Countdown
               endsAt={match.phaseDeadline}

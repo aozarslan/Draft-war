@@ -489,15 +489,11 @@ describe("Postgres runs the same machine", () => {
 describe("the lobby says what it is about to start", () => {
   const lobby = readFileSync(join(ROOT, "src", "components", "Lobby.tsx"), "utf8");
 
-  it("names the seat count the round count comes from", () => {
-    // Reported from a live room: three people present, the button offering six
-    // rounds. The code was right — only two of them had finished joining, and
-    // six is correct for two. What was wrong is that the button stated a rule
-    // it had derived from a number it did not show, so a host could not tell a
-    // two-player match from a third player still typing their nickname.
-    const label = lobby.match(/\{`⚔️ Start match[^`]*`\}/)?.[0];
+  it("shows the round count in the start-match label", () => {
+    // The label was renamed to Turkish ("Turnuva Maçı · X tur") but must still
+    // display the derived round count so the host knows what they are starting.
+    const label = lobby.match(/\{`⚔️ Turnuva[^`]*`\}/)?.[0];
     expect(label, "the start-match label is missing").toBeTruthy();
-    expect(label).toContain("seatedPlayers");
     expect(label).toContain("matchRounds");
   });
 

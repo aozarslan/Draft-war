@@ -341,7 +341,7 @@ export function Lobby({ store }: { store: RoomStore }) {
                 ? `Need ${room.config.minPlayers} players`
                 : !everyoneReady
                   ? "Waiting for everyone"
-                  : `Start · ${draftTotal} characters`}
+                  : "Klasik Maç (tek savaş)"}
           </button>
         ) : null}
 
@@ -351,7 +351,7 @@ export function Lobby({ store }: { store: RoomStore }) {
             disabled={busy || !everyoneReady || !enoughPlayers}
             onClick={startMatch}
           >
-            {`⚔️ Start match · ${seatedPlayers} player${seatedPlayers === 1 ? "" : "s"} · ${matchRounds} rounds`}
+            {`⚔️ Turnuva Maçı · ${matchRounds} tur`}
           </button>
         ) : (
           <p className="text-center text-xs font-semibold text-white/40">

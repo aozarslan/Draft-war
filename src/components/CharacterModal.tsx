@@ -12,12 +12,24 @@ import { nicknameFor } from "@/lib/game/characters";
  * Full character sheet. Opens as a centred dialog on desktop and a bottom sheet
  * on phones, which is where most of this game is played.
  */
+/**
+ * Full character sheet.
+ *
+ * Default (nonBlocking=false): centred dialog on desktop, bottom sheet on mobile.
+ * Body scroll is locked while open.
+ *
+ * nonBlocking=true (auction context): right-side drawer on desktop (sm+),
+ * compact bottom sheet on mobile. Body scroll is NOT locked so bid controls
+ * remain reachable by scrolling.
+ */
 export function CharacterModal({
   character,
   onClose,
+  nonBlocking = false,
 }: {
   character: Character | null;
   onClose: () => void;
+  nonBlocking?: boolean;
 }) {
   useEffect(() => {
     if (!character) return;
@@ -25,31 +37,35 @@ export function CharacterModal({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    if (!nonBlocking) document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      if (!nonBlocking) document.body.style.overflow = "";
     };
-  }, [character, onClose]);
+  }, [character, onClose, nonBlocking]);
 
   if (!character) return null;
   const category = getCategory(character.categoryId);
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center"
+      className={`fixed inset-0 z-[60] flex items-end ${nonBlocking ? "justify-end sm:items-stretch" : "justify-center sm:items-center"}`}
       role="dialog"
       aria-modal="true"
       aria-label={`${character.name} details`}
     >
       <button
-        className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+        className={`absolute inset-0 ${nonBlocking ? "bg-black/50" : "bg-black/75 backdrop-blur-sm"}`}
         onClick={onClose}
         aria-label="Close"
         tabIndex={-1}
       />
 
-      <div className="glass relative max-h-[92dvh] w-full max-w-lg animate-[rise_0.25s_ease-out] overflow-y-auto rounded-t-3xl sm:rounded-3xl">
+      <div className={`glass relative overflow-y-auto animate-[rise_0.25s_ease-out] ${
+        nonBlocking
+          ? "w-full max-h-[65dvh] rounded-t-3xl sm:w-96 sm:max-h-none sm:rounded-none sm:rounded-l-3xl"
+          : "max-h-[92dvh] w-full max-w-lg rounded-t-3xl sm:rounded-3xl"
+      }`}>
         <div className="relative">
           <div className="aspect-[4/3] w-full sm:aspect-[16/10]">
             <CharacterImage character={character} priority sizes="512px" />
