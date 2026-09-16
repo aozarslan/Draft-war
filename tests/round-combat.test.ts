@@ -359,7 +359,9 @@ describe("no client can name a fight", () => {
 
   it("fights on arrival and retries through the tick", () => {
     expect(engine).toMatch(/phase === "COMBAT" \|\| phase === "FINAL_COMBAT"[\s\S]*?resolveRoundCombat/);
-    expect(engine).toMatch(/"NEEDS_COMBAT"\)\s*await resolveRoundCombat/);
+    // The NEEDS_COMBAT handler calls pairFinalRound (idempotent for regular COMBAT)
+    // then resolveRoundCombat; both must be present in the same handler block.
+    expect(engine).toMatch(/"NEEDS_COMBAT"[\s\S]*?pairFinalRound[\s\S]*?resolveRoundCombat/);
   });
 
   it("takes every input from server state", () => {
@@ -521,13 +523,11 @@ describe("0034 adds behaviour, not schema", () => {
   });
 
   it("owns the definitions it is supposed to own", () => {
-    for (const name of [
-      "dw_record_acquisition",
-      "dw_advance_match_phase", "dw_match_tick",
-    ]) {
-      expect(liveDefinitionOf(name).file, `${name} is not live from 0034`)
-        .toBe("0034_s8_round_combat.sql");
-    }
+    // dw_record_acquisition still lives in 0034.
+    expect(liveDefinitionOf("dw_record_acquisition").file).toBe("0034_s8_round_combat.sql");
+    // dw_advance_match_phase and dw_match_tick were superseded by 0038 (final combat).
+    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0038_s8_final_combat_champion.sql");
+    expect(liveDefinitionOf("dw_match_tick").file).toBe("0038_s8_final_combat_champion.sql");
     // dw_start_match superseded by 0036 (HP 80 → 60).
     expect(liveDefinitionOf("dw_start_match").file).toBe("0036_s8_starting_hp_60.sql");
     // dw_resolve_matchup and dw_match_snapshot are superseded by 0035.

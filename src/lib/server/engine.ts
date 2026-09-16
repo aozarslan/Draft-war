@@ -397,6 +397,19 @@ export async function advanceMatchPhase(
   // Arriving at a round's draft opens it. Done here rather than in SQL because
   // the queue is selected in TypeScript — the same place, and for the same
   // reason, as the legacy draft's queue.
+
+  // FINAL_COMBAT needs its matchup (or direct champion) before the fight runs.
+  if (phase === "FINAL_COMBAT" && !noop) {
+    try {
+      await pairFinalRound(roomId);
+    } catch (err) {
+      // Pairing failed but the phase moved. The tick fires NEEDS_COMBAT for
+      // FINAL_COMBAT when the FINAL matchup is absent, which retries both
+      // pairFinalRound and resolveRoundCombat.
+      console.error("[DRAFT WAR] final combat pairing failed; the tick will retry", err);
+    }
+  }
+
   if ((phase === "COMBAT" || phase === "FINAL_COMBAT") && !noop) {
     try {
       await resolveRoundCombat(roomId);
@@ -523,6 +536,25 @@ export async function pairMatchRound(roomId: string): Promise<void> {
       reason: p.reason,
     })),
   });
+}
+
+/**
+ * Pairs the final combat (FINAL_COMBAT phase).
+ *
+ * Delegates entirely to `dw_pair_final_round`, which handles three survivor
+ * counts without a pairings argument:
+ *   1  → sets champion_player_id directly; no matchup inserted.
+ *   2  → inserts a FINAL matchup; the fight decides the champion.
+ *   3+ → highest HP (then round_wins, then player_id) is champion; no fight.
+ *
+ * Idempotent: dw_pair_final_round is a noop when champion_player_id is already
+ * set or a FINAL matchup already exists. Safe to call from the tick retry path.
+ */
+export async function pairFinalRound(roomId: string): Promise<void> {
+  const snap = await getSnapshot(roomId);
+  if (!snap.match) return;
+  if (snap.match.phase !== "FINAL_COMBAT") return;
+  await rpcOrThrow("dw_pair_final_round", { p_room_id: roomId });
 }
 
 /**
@@ -1039,7 +1071,11 @@ export async function tickRoom(roomId: string): Promise<Snapshot> {
       // SQL so the deadline table stays in one file.
       else if (action === "ROUND_AUCTION_COMPLETE") await advanceMatchPhase(roomId, null);
       else if (action === "NEEDS_ROUND_PAIRING") await pairMatchRound(roomId);
-      else if (action === "NEEDS_COMBAT") await resolveRoundCombat(roomId);
+      else if (action === "NEEDS_COMBAT") {
+        // For FINAL_COMBAT, pair first (idempotent noop for regular COMBAT).
+        await pairFinalRound(roomId);
+        await resolveRoundCombat(roomId);
+      }
     } catch (err) {
       // A losing race is expected here (another client got there first).
       if (!(err instanceof EngineError)) throw err;
