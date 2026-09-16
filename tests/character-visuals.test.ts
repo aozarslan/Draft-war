@@ -61,7 +61,7 @@ describe("the catalogue people are playing right now", () => {
    * the same commit and a reviewer sees it.
    */
   const GAMEPLAY_FINGERPRINT =
-    "a2f9491df7423fef5a954fdf96be8341b484fae5162f2de0d4621c27a0ee0589";
+    "9c9630e112080fb0c0e85756862f799802d3d8ae309c746d104f4f1e906371d0";
 
   it("still has every character it had, with every number unchanged", () => {
     const legacy = CHARACTERS.filter((c) => c.categoryId !== "football" && c.categoryId !== "basketball");
@@ -79,7 +79,7 @@ describe("the catalogue people are playing right now", () => {
       .sort()
       .join("\n");
 
-    expect(legacy).toHaveLength(268);
+    expect(legacy).toHaveLength(290);
     expect(createHash("sha256").update(fingerprint).digest("hex")).toBe(
       GAMEPLAY_FINGERPRINT,
     );
@@ -99,7 +99,7 @@ describe("the catalogue people are playing right now", () => {
     const counts: Record<string, number> = {};
     for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
     expect(counts).toMatchObject({
-      marvel: 50, dc: 50, hollywood: 40, "action-movies": 30,
+      marvel: 60, dc: 60, hollywood: 42, "action-movies": 30,
       animals: 30, fantasy: 24, "video-games": 22, anime: 22,
     });
   });
@@ -161,9 +161,9 @@ describe("the visual table carries only what was authored", () => {
     // S4 authored thirteen animals. Everything else still resolves through the
     // rules, and a table that quietly grew past what was written would mean a
     // look had been derived where it should have been chosen.
-    // Thirteen animals (S4), twenty footballers (S6), twenty-five
+    // Thirteen animals (S4), sixty footballers (S6+), twenty-five
     // basketballers (S7). Everything else still resolves through the rules.
-    expect(Object.keys(CHARACTER_VISUALS)).toHaveLength(58);
+    expect(Object.keys(CHARACTER_VISUALS)).toHaveLength(98);
     for (const id of Object.keys(CHARACTER_VISUALS)) {
       expect(CHARACTERS_BY_ID[id], `${id} names no character`).toBeTruthy();
     }

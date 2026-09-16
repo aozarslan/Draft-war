@@ -59,17 +59,15 @@ describe("category registry", () => {
     // possible moment, since the room has already picked and locked.
     const counts = categoryCounts();
     const seats = Object.fromEntries(
-      CATEGORIES.map((c) => [c.id, Math.min(5, Math.floor((counts[c.id] ?? 0) / 5))]),
+      CATEGORIES.map((c) => [c.id, Math.min(6, Math.floor((counts[c.id] ?? 0) / 5))]),
     );
 
     expect(seats).toEqual({
-      marvel: 5, dc: 5, hollywood: 5, "action-movies": 5,
-      animals: 5, fantasy: 4, "video-games": 4, anime: 4,
-      // Football seats four. Five more characters would seat five; the gap is
-      // written down rather than asserted away, because it is a content
-      // decision and not a bug.
-      football: 4,
-      // Twenty-five: a full five-player table on its own.
+      marvel: 6, dc: 6, hollywood: 6, "action-movies": 6,
+      animals: 6, fantasy: 4, "video-games": 4, anime: 4,
+      // Football now seats six — sixty characters, five per player.
+      football: 6,
+      // Twenty-five: a full five-player table but short of six.
       basketball: 5,
     });
 

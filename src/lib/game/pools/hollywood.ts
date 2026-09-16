@@ -53,4 +53,6 @@ export const HOLLYWOOD: PoolEntry[] = [
   { n: "Sammo Hung", u: "Hollywood", t: "Heavy and impossibly fast", g: ["martial-arts", "veteran", "brawler"], s: [84, 78, 90, 60, 80, 74], ab: ["Ground Control", "Choreography Mind"] },
   { n: "Maggie Q", u: "Hollywood", t: "Trained on set", g: ["martial-arts", "gunplay", "stealth"], s: [56, 80, 80, 78, 78, 76], ab: ["Wire Kick", "Infiltrate"] },
   { n: "Zoe Saldana", u: "Hollywood", t: "The franchise fighter", g: ["melee", "mobility", "gunplay"], s: [60, 78, 76, 72, 74, 76], ab: ["Blade Spin", "Zero G Move"] },
+  { n: "Nicolas Cage", u: "Hollywood", t: "Unhinged genius with a gun", g: ["gunplay", "tactical", "veteran", "chaotic"], s: [68, 66, 68, 84, 92, 78], ab: ["Manic Energy", "Face Change"] },
+  { n: "Chow Yun-fat", u: "Hollywood", t: "Dual pistols, trench coat, style eternal", g: ["gunplay", "tactical", "veteran", "marksman"], s: [68, 76, 80, 96, 86, 80], ab: ["Gun Ballet", "Slow Motion"] },
 ];

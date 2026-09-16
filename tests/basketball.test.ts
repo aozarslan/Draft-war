@@ -528,9 +528,9 @@ describe("the game people are playing did not move", () => {
       .map((c) => [c.id, c.categoryId, c.gamePower, c.rarity, c.basePrice, JSON.stringify(c.stats), c.tags.join(",")].join("|"))
       .sort()
       .join("\n");
-    expect(legacy).toHaveLength(268);
+    expect(legacy).toHaveLength(290);
     expect(createHash("sha256").update(fingerprint).digest("hex")).toBe(
-      "a2f9491df7423fef5a954fdf96be8341b484fae5162f2de0d4621c27a0ee0589",
+      "9c9630e112080fb0c0e85756862f799802d3d8ae309c746d104f4f1e906371d0",
     );
   });
 

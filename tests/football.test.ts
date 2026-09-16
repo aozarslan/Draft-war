@@ -110,19 +110,16 @@ describe("the category exists and behaves like every other one", () => {
     }
   });
 
-  it("seats four players, and says plainly that it does not seat five", () => {
-    // The draft consumes `players x 5` exactly, so the pool size *is* the
-    // table size. Twenty seats four. A fifth player needs five more
-    // characters, and claiming otherwise would fail at `beginAuction` after
-    // the room has already locked its category.
-    expect(FOOTBALLERS).toHaveLength(20);
-    expect(Math.floor(FOOTBALLERS.length / 5)).toBe(4);
+  it("seats up to six players", () => {
+    // Sixty characters, five per player → seats twelve in theory, six in
+    // practice (the game-wide maximum). Every table size up to six must be
+    // coverable without hitting POOL_TOO_SMALL.
+    expect(FOOTBALLERS).toHaveLength(60);
+    expect(Math.floor(FOOTBALLERS.length / 5)).toBeGreaterThanOrEqual(6);
 
-    for (const players of [2, 3, 4]) {
+    for (const players of [2, 3, 4, 5, 6]) {
       expect(players * 5, `${players} players`).toBeLessThanOrEqual(FOOTBALLERS.length);
     }
-    expect(5 * 5).toBeGreaterThan(FOOTBALLERS.length);
-    expect(5 * 5 - FOOTBALLERS.length, "characters still needed for five").toBe(5);
   });
 });
 
@@ -168,8 +165,8 @@ describe("the roster is what was designed", () => {
   });
 });
 
-describe("twenty footballers who do not look like one footballer", () => {
-  it("produces twenty distinct visual signatures", () => {
+describe("sixty footballers who do not look like one footballer", () => {
+  it("produces sixty distinct visual signatures", () => {
     const seen = new Map<string, string[]>();
     for (const c of FOOTBALLERS) {
       const sig = visualSignature(visualArchetypeFor(c), identityOf(c.id));
@@ -177,11 +174,11 @@ describe("twenty footballers who do not look like one footballer", () => {
     }
     const collisions = [...seen.values()].filter((v) => v.length > 1);
     expect(collisions, collisions.map((c) => c.join(" = ")).join("; ")).toHaveLength(0);
-    expect(seen.size).toBe(20);
+    expect(seen.size).toBe(60);
   });
 
   it("separates them on shape, with the palette taken away", () => {
-    // Every one of the twenty is a humanoid. If colour were doing the work of
+    // Every one of the sixty is a humanoid. If colour were doing the work of
     // telling them apart, this is where it would show.
     const shapes = new Set(
       FOOTBALLERS.map((c) => {
@@ -189,7 +186,7 @@ describe("twenty footballers who do not look like one footballer", () => {
         return [visualArchetypeFor(c), i.head, i.back, i.marking, i.build, i.prop, i.scale].join("|");
       }),
     );
-    expect(shapes.size).toBe(20);
+    expect(shapes.size).toBe(60);
   });
 
   it("separates the pairs the design calls out by name", () => {
@@ -402,15 +399,15 @@ describe("the game people are playing did not move", () => {
     const counts: Record<string, number> = {};
     for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
     expect(counts).toMatchObject({
-      marvel: 50, dc: 50, hollywood: 40, "action-movies": 30,
+      marvel: 60, dc: 60, hollywood: 42, "action-movies": 30,
       animals: 30, fantasy: 24, "video-games": 22, anime: 22,
-      football: 20, basketball: 25,
+      football: 60, basketball: 25,
     });
   });
 
   it("adds new categories without taking a character from anywhere else", () => {
     const legacy = CHARACTERS.filter((c) => c.categoryId !== "football" && c.categoryId !== "basketball");
-    expect(legacy).toHaveLength(268);
+    expect(legacy).toHaveLength(290);
   });
 });
 
