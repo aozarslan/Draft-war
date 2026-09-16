@@ -1076,6 +1076,9 @@ export async function tickRoom(roomId: string): Promise<Snapshot> {
         await pairFinalRound(roomId);
         await resolveRoundCombat(roomId);
       }
+      // The final fight (or direct champion crown for 1/3+ survivors) is done.
+      // dw_match_tick fires this; dw_advance_match_phase handles the guard.
+      else if (action === "FINAL_COMBAT_DONE") await advanceMatchPhase(roomId, null);
     } catch (err) {
       // A losing race is expected here (another client got there first).
       if (!(err instanceof EngineError)) throw err;

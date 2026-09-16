@@ -62,9 +62,10 @@ describe("which migration owns which function", () => {
     // dw_pair_round superseded by 0037 (round_live_count column for damage scaling).
     expect(liveDefinitionOf("dw_pair_round").file).toBe("0037_s8_damage_scaling.sql");
     // 0033 took the phase advance to close the draft guard hole; 0034 took it
-    // again for round combat; 0038 took it again for final combat + champion.
-    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0038_s8_final_combat_champion.sql");
-    expect(liveDefinitionOf("dw_match_tick").file).toBe("0038_s8_final_combat_champion.sql");
+    // again for round combat; 0038 took it for final combat + champion; 0040
+    // added tick-driven auto-advance out of FINAL_COMBAT.
+    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0040_s8_final_combat_auto_advance.sql");
+    expect(liveDefinitionOf("dw_match_tick").file).toBe("0040_s8_final_combat_auto_advance.sql");
     // dw_match_snapshot and dw_resolve_matchup are superseded by 0035 (ghost rounds).
     expect(liveDefinitionOf("dw_match_snapshot").file).toBe("0035_s8_ghost_rounds.sql");
     expect(liveDefinitionOf("dw_resolve_matchup").file).toBe("0035_s8_ghost_rounds.sql");

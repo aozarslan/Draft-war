@@ -24,6 +24,13 @@ import { CHARACTERS } from "../src/lib/game/characters";
  *     `kind = 'FINAL'` so R8 matchups cannot satisfy it.
  *   – `dw_advance_match_phase` sets `champion_player_id` on MATCH_RESULTS.
  *
+ * Fix (0040 — auto-advance):
+ *   – `dw_match_tick` fires FINAL_COMBAT_DONE once the fight is settled (or
+ *     the champion is already crowned for 1 / 3+ survivor paths), so the
+ *     match advances to MATCH_RESULTS without requiring a host click.
+ *   – `dw_advance_match_phase` allows a null-player (tick-driven) advance for
+ *     FINAL_COMBAT, parallel to the way AUCTION is driven by ROUND_AUCTION_COMPLETE.
+ *
  * These tests pin the SQL source to the contract rather than executing it
  * (no database in CI), using the same pattern as round-pairing.test.ts.
  */
@@ -55,16 +62,18 @@ describe("0038 owns the functions it introduces or replaces", () => {
       "0038_s8_final_combat_champion.sql",
     );
   });
+});
 
-  it("dw_advance_match_phase moved to 0038", () => {
+describe("0040 owns the functions it replaces", () => {
+  it("dw_advance_match_phase moved to 0040", () => {
     expect(liveDefinitionOf("dw_advance_match_phase").file).toBe(
-      "0038_s8_final_combat_champion.sql",
+      "0040_s8_final_combat_auto_advance.sql",
     );
   });
 
-  it("dw_match_tick moved to 0038", () => {
+  it("dw_match_tick moved to 0040", () => {
     expect(liveDefinitionOf("dw_match_tick").file).toBe(
-      "0038_s8_final_combat_champion.sql",
+      "0040_s8_final_combat_auto_advance.sql",
     );
   });
 });
@@ -156,25 +165,68 @@ describe("dw_advance_match_phase FINAL_COMBAT guard", () => {
 });
 
 // ---------------------------------------------------------------------------
-// dw_match_tick — FINAL_COMBAT recovery (SQL source inspection)
+// dw_match_tick — FINAL_COMBAT recovery and auto-advance (SQL source)
 // ---------------------------------------------------------------------------
 
-describe("dw_match_tick fires NEEDS_COMBAT for FINAL_COMBAT", () => {
+describe("dw_match_tick handles FINAL_COMBAT on every path", () => {
   const sql = fn("dw_match_tick");
 
   it("has a dedicated FINAL_COMBAT block", () => {
     expect(sql).toMatch(/m\.phase = 'FINAL_COMBAT'/);
   });
 
-  it("fires NEEDS_COMBAT when the FINAL matchup is absent", () => {
+  it("fires NEEDS_COMBAT when the FINAL matchup is absent (2-survivor path)", () => {
     const finalBlock = sql.slice(sql.indexOf("FINAL_COMBAT"));
     expect(finalBlock).toMatch(/not exists.*kind = 'FINAL'/s);
     expect(finalBlock).toMatch(/NEEDS_COMBAT/);
   });
 
-  it("fires NEEDS_COMBAT when the FINAL matchup is unsettled", () => {
+  it("fires NEEDS_COMBAT when the FINAL matchup is unsettled (2-survivor path)", () => {
     const finalBlock = sql.slice(sql.indexOf("FINAL_COMBAT"));
     expect(finalBlock).toMatch(/exists.*kind = 'FINAL'.*battle_result is null/s);
+  });
+
+  it("fires NEEDS_COMBAT when champion is unset (1 / 3+ survivor retry path)", () => {
+    // pairFinalRound may have failed; the tick must drive a retry.
+    const finalBlock = sql.slice(sql.indexOf("FINAL_COMBAT"));
+    expect(finalBlock).toMatch(/m\.champion_player_id is null/);
+    expect(finalBlock).toMatch(/NEEDS_COMBAT/);
+  });
+
+  it("fires FINAL_COMBAT_DONE once the 2-survivor fight is settled", () => {
+    // After the fight, v_live drops to 1 — NEEDS_COMBAT would not fire.
+    // FINAL_COMBAT_DONE drives the auto-advance to MATCH_RESULTS.
+    const finalBlock = sql.slice(sql.indexOf("FINAL_COMBAT"));
+    expect(finalBlock).toMatch(/FINAL_COMBAT_DONE/);
+  });
+
+  it("fires FINAL_COMBAT_DONE once champion is set (1 / 3+ paths)", () => {
+    // These paths never create a FINAL matchup; the tick must still advance.
+    // The SQL structure: if champion null → NEEDS_COMBAT; otherwise → FINAL_COMBAT_DONE.
+    const finalBlock = sql.slice(sql.indexOf("FINAL_COMBAT"));
+    // The null-check retry and the done signal are in the same block.
+    expect(finalBlock).toMatch(/champion_player_id is null[\s\S]*?NEEDS_COMBAT[\s\S]*?FINAL_COMBAT_DONE/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dw_advance_match_phase — tick-driven advance for FINAL_COMBAT (SQL source)
+// ---------------------------------------------------------------------------
+
+describe("dw_advance_match_phase allows tick-driven FINAL_COMBAT advance", () => {
+  const sql = fn("dw_advance_match_phase");
+
+  it("treats FINAL_COMBAT like AUCTION for null-player (tick-driven) calls", () => {
+    // The guard must name both AUCTION and FINAL_COMBAT in the same branch
+    // so the tick can drive the advance on either completion signal.
+    expect(sql).toMatch(/m\.phase not in \('AUCTION', 'FINAL_COMBAT'\)/);
+  });
+
+  it("still requires the host for every other non-timed phase", () => {
+    // The guard from 0038 that blocks null-player advances of arbitrary
+    // non-timed phases must still be present — only AUCTION and FINAL_COMBAT
+    // may be driven by the tick.
+    expect(sql).toMatch(/return.*noop.*true/s);
   });
 });
 

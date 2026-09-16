@@ -448,9 +448,10 @@ describe("a phase advances once per intention", () => {
   });
 
   it("does not silently skip a phase a subsystem has not finished", () => {
-    // COMBAT has no deadline yet and no completion check. It must wait rather
-    // than be walked past; S8.5 replaces this branch with the battle's clock.
-    expect(advance).toMatch(/elsif m\.phase <> 'AUCTION' then/);
+    // COMBAT has no deadline and must wait for the host. AUCTION and
+    // FINAL_COMBAT are driven by their own completion signals (tick actions),
+    // so they are the only two exemptions in the null-player guard.
+    expect(advance).toMatch(/m\.phase not in \('AUCTION', 'FINAL_COMBAT'\)/);
   });
 
   it("agrees with TypeScript about how long the window is", () => {

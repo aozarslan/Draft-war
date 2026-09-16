@@ -525,9 +525,9 @@ describe("0034 adds behaviour, not schema", () => {
   it("owns the definitions it is supposed to own", () => {
     // dw_record_acquisition still lives in 0034.
     expect(liveDefinitionOf("dw_record_acquisition").file).toBe("0034_s8_round_combat.sql");
-    // dw_advance_match_phase and dw_match_tick were superseded by 0038 (final combat).
-    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0038_s8_final_combat_champion.sql");
-    expect(liveDefinitionOf("dw_match_tick").file).toBe("0038_s8_final_combat_champion.sql");
+    // dw_advance_match_phase and dw_match_tick superseded by 0040 (auto-advance).
+    expect(liveDefinitionOf("dw_advance_match_phase").file).toBe("0040_s8_final_combat_auto_advance.sql");
+    expect(liveDefinitionOf("dw_match_tick").file).toBe("0040_s8_final_combat_auto_advance.sql");
     // dw_start_match superseded by 0036 (HP 80 → 60).
     expect(liveDefinitionOf("dw_start_match").file).toBe("0036_s8_starting_hp_60.sql");
     // dw_resolve_matchup and dw_match_snapshot are superseded by 0035.
