@@ -6,7 +6,7 @@ import { CharacterBrowser } from "./CharacterBrowser";
 export const metadata: Metadata = {
   title: "Character database · DRAFT WAR",
   description:
-    "Every character in DRAFT WAR, across Marvel, DC, Hollywood, action movies, animals, fantasy, video games and anime.",
+    "Every character in DRAFT WAR, across Apex, Vigil, Hollywood, action movies, animals, fantasy, video games and anime.",
 };
 
 export default function CharactersPage() {

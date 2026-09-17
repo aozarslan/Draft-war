@@ -7,8 +7,8 @@ import {
 } from "./categories";
 import type { Character, PoolEntry } from "./types";
 
-import { MARVEL } from "./pools/marvel";
-import { DC } from "./pools/dc";
+import { APEX } from "./pools/apex";
+import { VIGIL } from "./pools/vigil";
 import { HOLLYWOOD } from "./pools/hollywood";
 import { ACTION_MOVIES } from "./pools/action-movies";
 import { ANIMALS } from "./pools/animals";
@@ -144,8 +144,8 @@ export function buildPool(categoryId: string, entries: PoolEntry[]): Character[]
 }
 
 export const POOLS: Record<string, PoolEntry[]> = {
-  marvel: MARVEL,
-  dc: DC,
+  apex: APEX,
+  vigil: VIGIL,
   hollywood: HOLLYWOOD,
   "action-movies": ACTION_MOVIES,
   animals: ANIMALS,

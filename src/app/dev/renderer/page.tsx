@@ -152,7 +152,7 @@ export default function RendererHarness() {
   const elapsedRef = useRef(0);
 
   const [seed, setSeed] = useState("harness-1");
-  const [categoryId, setCategoryId] = useState("marvel");
+  const [categoryId, setCategoryId] = useState("apex");
   const [roster, setRoster] = useState<RosterMode>("SHOWCASE");
   const [formationA, setFormationA] = useState<FormationId>("AGGRESSIVE");
   const [formationB, setFormationB] = useState<FormationId>("DEFENSIVE");
