@@ -236,9 +236,17 @@ export function useRoom(code: string): RoomStore {
       const now = Date.now() + offsetRef.current;
 
       let due: number | null = null;
-      if (snap.room.phase === "AUCTION" && snap.auction) {
+      // An active lot has its own deadline, independent of the room/match phase.
+      // The legacy draft sets room.phase = "AUCTION"; the S8 match keeps
+      // room.phase = "MATCH" while match.phase = "AUCTION". Checking auction
+      // status directly covers both without branching on room phase.
+      if (snap.auction?.status === "ACTIVE") {
         due = new Date(snap.auction.endsAt).getTime();
+      } else if (snap.match?.phaseDeadline) {
+        // S8 match clock-driven phases (ROUND_START, BOARD_UPDATE, etc.)
+        due = new Date(snap.match.phaseDeadline).getTime();
       } else if (snap.game?.phaseDeadline) {
+        // Legacy game phase deadline.
         due = new Date(snap.game.phaseDeadline).getTime();
       }
 

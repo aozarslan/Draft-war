@@ -676,3 +676,70 @@ describe("a client sends an intention and nothing else", () => {
     expect(start).not.toMatch(/p_round_no/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bug fixes: 0041
+// ---------------------------------------------------------------------------
+
+describe("a 0-credit player always gets a character in mandatory rounds", () => {
+  const open = fn("dw_open_next_round_auction");
+
+  it("has a charity-assignment pass before the recycle loop", () => {
+    // The pass assigns the cheapest-power unsold character to players who
+    // cannot afford even the minimum bid, breaking the infinite recycle loop.
+    expect(open).toContain("CHARITY_ASSIGNED");
+    expect(open).toContain("dw_bid_credits(p_game_id, p.id) = 0");
+  });
+
+  it("assigns the charity character at price zero", () => {
+    expect(open).toMatch(/v_free_price\s+int := 0/);
+    expect(open).toContain("v_free_price");
+    // The charity block must not debit credits — a 0 debit is a no-op but
+    // keeping it out makes the intent explicit.
+    const charityBlock = open.match(/CHARITY_ASSIGNED[\s\S]*?end loop;/)?.[0] ?? "";
+    expect(charityBlock).not.toContain("dw_debit_credits(");
+  });
+
+  it("picks the cheapest-power character from the unsold pool", () => {
+    // The rule is that a broke player gets the weakest available character,
+    // not the one that happened to be on the block last.
+    expect(open).toMatch(/order by c\.game_power asc/);
+  });
+
+  it("only applies in mandatory rounds, not optional ones", () => {
+    // Charity assignment is inside the `if v_required then` guard, so a
+    // player who voluntarily passed in rounds 6–8 is not given a free one.
+    const requiredBlock = open.match(/if v_required then[\s\S]*?end if;/)?.[0] ?? "";
+    expect(requiredBlock).toContain("CHARITY_ASSIGNED");
+  });
+
+  it("re-checks demand after charity assignment before completing", () => {
+    // Without the recheck, a round where only broke players were still short
+    // would fire ROUND_AUCTION_COMPLETE then immediately try to open another
+    // lot and error on the finished game.
+    expect(open).toMatch(/v_demand := dw_round_demand\(p_game_id\)[\s\S]*?ROUND_AUCTION_COMPLETE/);
+  });
+});
+
+describe("the auction clock driver fires for S8 matches too", () => {
+  const clock = readFileSync(join(ROOT, "src", "lib", "client", "useRoom.ts"), "utf8");
+
+  it("does not gate the auction tick on the legacy room phase", () => {
+    // During an S8 match the room phase is 'MATCH', not 'AUCTION'.
+    // Checking room.phase === 'AUCTION' would silence the tick for every
+    // S8 round and the lot timer would expire silently.
+    expect(clock).not.toMatch(/snap\.room\.phase === ['"]AUCTION['"]\s*&&\s*snap\.auction/);
+  });
+
+  it("fires on auction status regardless of room phase", () => {
+    // status === 'ACTIVE' is true both in a legacy draft (room.phase = 'AUCTION')
+    // and in an S8 round (room.phase = 'MATCH', match.phase = 'AUCTION').
+    expect(clock).toMatch(/snap\.auction\?\.status === ['"]ACTIVE['"]/);
+  });
+
+  it("also covers S8 match phase deadlines, not just the legacy game deadline", () => {
+    // S8 clock-driven phases (ROUND_START 5s, BOARD_UPDATE 25s, etc.) set
+    // match.phaseDeadline; game.phaseDeadline is the legacy path.
+    expect(clock).toMatch(/snap\.match\?\.phaseDeadline/);
+  });
+});
