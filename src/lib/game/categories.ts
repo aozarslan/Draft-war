@@ -376,7 +376,7 @@ export const CATEGORIES: Category[] = [
     name: "VIDEO GAMES",
     icon: "🎮",
     tagline: "Press start to fight.",
-    description: "Icons from four decades of video games, from plumbers to demon hunters.",
+    description: "Champions from four decades of game worlds, from armoured soldiers to demon hunters.",
     palette: ["#0c4a6e", "#22d3ee"],
     accent: "#22d3ee",
     stats: [
@@ -395,7 +395,7 @@ export const CATEGORIES: Category[] = [
       special: [["special", 1]],
     },
     synergies: [
-      { tag: "nintendo", label: "Mushroom Kingdom", perMember: 0.025 },
+      { tag: "nintendo", label: "All-Stars", perMember: 0.025 },
       { tag: "shooter", label: "Shooters", perMember: 0.025 },
       { tag: "rpg", label: "Adventurers", perMember: 0.025 },
       { tag: "fighter", label: "Fighting Game", perMember: 0.025 },
