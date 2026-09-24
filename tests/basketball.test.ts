@@ -530,14 +530,14 @@ describe("the game people are playing did not move", () => {
       .join("\n");
     expect(legacy).toHaveLength(290);
     expect(createHash("sha256").update(fingerprint).digest("hex")).toBe(
-      "9c9630e112080fb0c0e85756862f799802d3d8ae309c746d104f4f1e906371d0",
+      "6658f0e245ef838e5cb93486e1c0759a493e2f08ce63ce7d359b19959f9236f9",
     );
   });
 
   it("keeps all eight legacy categories and adds a tenth", () => {
     const ids = CATEGORIES.map((c) => c.id);
     for (const legacy of [
-      "animals", "marvel", "dc", "hollywood",
+      "animals", "apex", "vigil", "hollywood",
       "action-movies", "fantasy", "video-games", "anime",
     ]) {
       expect(ids).toContain(legacy);

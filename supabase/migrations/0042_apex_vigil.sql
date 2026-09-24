@@ -10,7 +10,7 @@
 -- 1. APEX (was MARVEL) — 60 characters
 -- ────────────────────────────────────────────────────────────────────────────
 
-WITH apex_updates(id, new_name, new_title, new_universe, new_abilities, new_palette, new_meta) AS (
+WITH apex_updates(id, new_name, new_title, new_abilities, new_palette, new_meta) AS (
   VALUES
     ('marvel-spider-man',       'The Swift Crawler',       'The city is his arena and every surface is a shortcut.',                                            ARRAY['Silk Snare','Precognitive Dodge'],           ARRAY['#731f1a','#eb241a'], '{"i":{"head":"PLAIN","back":"NONE","marking":"STRIPES","build":"NORMAL","prop":"NONE","scale":0.96}}'::jsonb),
     ('marvel-iron-man',         'The Iron Tycoon',         'He turned his fortune into firepower and wore it to the front line.',                               ARRAY['Overload Strike','Systems Overclock'],       ARRAY['#62162d','#ed316a'], '{"i":{"head":"HELM","back":"NONE","marking":"PLAIN","build":"NORMAL","prop":"ORB","scale":1.0}}'::jsonb),
@@ -76,7 +76,7 @@ WITH apex_updates(id, new_name, new_title, new_universe, new_abilities, new_pale
 UPDATE characters c SET
   name         = u.new_name,
   title        = u.new_title,
-  universe     = u.new_universe,
+  universe     = 'Apex',
   version      = NULL,
   description  = '',
   actor        = NULL,
@@ -98,7 +98,7 @@ WHERE c.id = u.id;
 -- 2. VIGIL (was DC) — 60 characters
 -- ────────────────────────────────────────────────────────────────────────────
 
-WITH vigil_updates(id, new_name, new_title, new_universe, new_abilities, new_palette, new_meta) AS (
+WITH vigil_updates(id, new_name, new_title, new_abilities, new_palette, new_meta) AS (
   VALUES
     ('dc-superman',           'The Ivory Paragon',        'He could end every fight in seconds and holds back because restraint is the harder lesson.',         ARRAY['Thermal Ray','Pressure Wave'],               ARRAY['#194371','#fb8e1f'], '{"va":"humanoid_large","i":{"head":"PLAIN","back":"CAPE","marking":"PLAIN","build":"TOWERING","prop":"NONE","scale":1.14}}'::jsonb),
     ('dc-batman',             'The Midnight Sentinel',    'No powers. No shortcuts. He trained until nothing surprised him.',                                    ARRAY['Shadow Pounce','Iron Resolve'],              ARRAY['#1d2386','#fbe810'], '{"i":{"head":"HELM","back":"CAPE","marking":"PLAIN","build":"HEAVY","prop":"NONE","scale":0.97}}'::jsonb),
@@ -164,7 +164,7 @@ WITH vigil_updates(id, new_name, new_title, new_universe, new_abilities, new_pal
 UPDATE characters c SET
   name         = u.new_name,
   title        = u.new_title,
-  universe     = u.new_universe,
+  universe     = 'Vigil',
   version      = NULL,
   description  = '',
   actor        = NULL,

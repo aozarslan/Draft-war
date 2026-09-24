@@ -33,13 +33,13 @@ import { CHARACTERS } from "../src/lib/game/characters";
 const ROOT = process.cwd();
 const BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 const BANDS = computeAxisBands(CHARACTERS);
-const MARVEL = CHARACTERS.filter((c) => c.categoryId === "marvel").map((c) => c.id);
-const DC = CHARACTERS.filter((c) => c.categoryId === "dc").map((c) => c.id);
+const MARVEL = CHARACTERS.filter((c) => c.categoryId === "apex").map((c) => c.id);
+const DC = CHARACTERS.filter((c) => c.categoryId === "vigil").map((c) => c.id);
 
 const fn = (name: string) => liveDefinitionOf(name).sql;
 const boardOf = (ids: string[]) => ids.map((characterId, i) => ({ characterId, price: i + 1 }));
 const ctx = (over: Partial<CombatContext> = {}): CombatContext => ({
-  matchSeed: "s", roundNo: 3, pairingIndex: 0, categoryIds: ["marvel", "dc"],
+  matchSeed: "s", roundNo: 3, pairingIndex: 0, categoryIds: ["apex", "vigil"],
   charactersById: BY_ID, bands: BANDS, ...over,
 });
 
@@ -310,7 +310,7 @@ describe("the existing synergy decides the fight", () => {
     // capped at +10%, so this is a thumb on the scale rather than a decision —
     // which is the point.
     const byTag: Record<string, string[]> = {};
-    for (const c of CHARACTERS.filter((x) => x.categoryId === "marvel")) {
+    for (const c of CHARACTERS.filter((x) => x.categoryId === "apex")) {
       for (const t of c.tags) (byTag[t] ??= []).push(c.id);
     }
     const stacked = Object.values(byTag).sort((a, b) => b.length - a.length)[0].slice(0, 5);
@@ -320,7 +320,7 @@ describe("the existing synergy decides the fight", () => {
 
   it("grows with the board, which is where the mid game comes from", () => {
     const tagged = Object.entries(
-      CHARACTERS.filter((c) => c.categoryId === "marvel")
+      CHARACTERS.filter((c) => c.categoryId === "apex")
         .reduce<Record<string, string[]>>((acc, c) => {
           for (const t of c.tags) (acc[t] ??= []).push(c.id);
           return acc;
@@ -385,7 +385,7 @@ describe("a round owes exactly the fights it has not had", () => {
   const marvel = MARVEL.slice(0, 12);
   const base = {
     status: "ACTIVE", phase: "COMBAT", roundNo: 3, seed: "s",
-    categoryIds: ["marvel", "dc"],
+    categoryIds: ["apex", "vigil"],
     players: [
       { playerId: "a", hp: 60, eliminatedAt: null },
       { playerId: "b", hp: 40, eliminatedAt: null },

@@ -18,7 +18,7 @@ const BANDS = computeAxisBands(CHARACTERS);
 const map = MAPS_BY_ID["open-field"] ?? Object.values(MAPS_BY_ID)[0];
 const event = EVENTS_BY_ID["close-quarters"] ?? Object.values(EVENTS_BY_ID)[0];
 
-const marvel = CHARACTERS.filter((c) => c.categoryId === "marvel");
+const marvel = CHARACTERS.filter((c) => c.categoryId === "apex");
 
 const teamA = {
   playerId: "player-a",
@@ -48,7 +48,7 @@ const run = (seed: string): BattleResult =>
     event,
     charactersById: CHARACTERS_BY_ID,
     seed,
-    categoryIds: ["marvel"],
+    categoryIds: ["apex"],
     bands: BANDS,
   });
 

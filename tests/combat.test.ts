@@ -50,15 +50,15 @@ const ctx = (over: Partial<CombatContext> = {}): CombatContext => ({
   matchSeed: "seed-abc",
   roundNo: 3,
   pairingIndex: 0,
-  categoryIds: ["marvel", "dc"],
+  categoryIds: ["apex", "vigil"],
   charactersById: BY_ID,
   bands: BANDS,
   ...over,
 });
 
 const boardOf = (ids: string[]) => ids.map((characterId, i) => ({ characterId, price: i + 1 }));
-const MARVEL = CHARACTERS.filter((c) => c.categoryId === "marvel").map((c) => c.id);
-const DC = CHARACTERS.filter((c) => c.categoryId === "dc").map((c) => c.id);
+const MARVEL = CHARACTERS.filter((c) => c.categoryId === "apex").map((c) => c.id);
+const DC = CHARACTERS.filter((c) => c.categoryId === "vigil").map((c) => c.id);
 
 // ---------------------------------------------------------------------------
 // Damage
@@ -261,7 +261,7 @@ describe("assembling a duel", () => {
     expect(built.input.seed).toBe(battleSeedFor("seed-abc", 3, 0));
     expect(built.input.map).toEqual(battlefieldFor("seed-abc", 3).map);
     expect(built.input.event).toEqual(battlefieldFor("seed-abc", 3).event);
-    expect(built.input.categoryIds).toEqual(["marvel", "dc"]);
+    expect(built.input.categoryIds).toEqual(["apex", "vigil"]);
   });
 
   it("refuses rather than fielding an empty side", () => {

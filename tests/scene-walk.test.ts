@@ -23,7 +23,7 @@ const CHARACTERS_BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 const BANDS = computeAxisBands(CHARACTERS);
 const map = Object.values(MAPS_BY_ID)[0];
 const event = Object.values(EVENTS_BY_ID)[0];
-const marvel = CHARACTERS.filter((c) => c.categoryId === "marvel");
+const marvel = CHARACTERS.filter((c) => c.categoryId === "apex");
 
 const context: ReplayContext = {
   battleId: "walk-test",
@@ -53,7 +53,7 @@ function battle(seed: string): BattleResult {
     event,
     charactersById: CHARACTERS_BY_ID,
     seed,
-    categoryIds: ["marvel"],
+    categoryIds: ["apex"],
     bands: BANDS,
   });
 }

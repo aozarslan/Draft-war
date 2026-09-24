@@ -24,8 +24,8 @@ import { CHARACTERS } from "../src/lib/game/characters";
 
 const BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 const BANDS = computeAxisBands(CHARACTERS);
-const MARVEL = CHARACTERS.filter((c) => c.categoryId === "marvel").map((c) => c.id);
-const DC = CHARACTERS.filter((c) => c.categoryId === "dc").map((c) => c.id);
+const MARVEL = CHARACTERS.filter((c) => c.categoryId === "apex").map((c) => c.id);
+const DC = CHARACTERS.filter((c) => c.categoryId === "vigil").map((c) => c.id);
 
 const marvelSlots = (playerId: string, ids: string[]) =>
   ids.map((characterId, i) => ({ playerId, characterId, zone: "FRONT", slot: i }));
@@ -46,7 +46,7 @@ describe("ghost selection is deterministic", () => {
   it("same seed and round always picks the same ghost", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 4, seed: "det-seed",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 70, eliminatedAt: null },
         { playerId: "b", hp: 50, eliminatedAt: null },
@@ -77,7 +77,7 @@ describe("ghost selection is deterministic", () => {
     const ghost = (seed: string) => {
       const m: FightableMatch = {
         status: "ACTIVE", phase: "COMBAT", roundNo: 1, seed,
-        categoryIds: ["marvel"],
+        categoryIds: ["apex"],
         players: [
           { playerId: "p1", hp: 80, eliminatedAt: null },
           { playerId: "p2", hp: 80, eliminatedAt: null },
@@ -123,7 +123,7 @@ describe("the ghost player id", () => {
   it("starts with the ghost prefix", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 3, seed: "prefix-test",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 60, eliminatedAt: null },
         { playerId: "b", hp: 40, eliminatedAt: null },
@@ -147,7 +147,7 @@ describe("the ghost player id", () => {
   it("is never the bye player themselves", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 2, seed: "not-self",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "x", hp: 80, eliminatedAt: null },
         { playerId: "y", hp: 80, eliminatedAt: null },
@@ -180,7 +180,7 @@ describe("the ghost owner's state is never touched by combatPlanFor", () => {
   it("ghostPlayerId is null for ordinary duels", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 1, seed: "even",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 80, eliminatedAt: null },
         { playerId: "b", hp: 80, eliminatedAt: null },
@@ -204,7 +204,7 @@ describe("the ghost owner's state is never touched by combatPlanFor", () => {
     // Board has 5 chars for both players — "b" has more characters than a simple 3-slot board.
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 5, seed: "current-board",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 60, eliminatedAt: null },
         { playerId: "b", hp: 50, eliminatedAt: null },
@@ -241,7 +241,7 @@ describe("ghost rounds by player count", () => {
   it("2 players — no ghost (even, playerB always set)", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 3, seed: "two-p",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 60, eliminatedAt: null },
         { playerId: "b", hp: 40, eliminatedAt: null },
@@ -262,7 +262,7 @@ describe("ghost rounds by player count", () => {
   it("3 players — exactly one ghost fight per round", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 2, seed: "three-p",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 80, eliminatedAt: null },
         { playerId: "b", hp: 80, eliminatedAt: null },
@@ -290,7 +290,7 @@ describe("ghost rounds by player count", () => {
   it("4 players — no ghost (even)", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 1, seed: "four-p",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "p1", hp: 80, eliminatedAt: null },
         { playerId: "p2", hp: 80, eliminatedAt: null },
@@ -317,7 +317,7 @@ describe("ghost rounds by player count", () => {
   it("5 players — exactly one ghost fight per round", () => {
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 3, seed: "five-p",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "p1", hp: 80, eliminatedAt: null },
         { playerId: "p2", hp: 80, eliminatedAt: null },
@@ -398,7 +398,7 @@ describe("sole survivor edge case", () => {
     // than crashing or inventing an opponent.
     const match: FightableMatch = {
       status: "ACTIVE", phase: "COMBAT", roundNo: 7, seed: "sole-survivor",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "a", hp: 20, eliminatedAt: null },
         { playerId: "b", hp: 0, eliminatedAt: 6 },

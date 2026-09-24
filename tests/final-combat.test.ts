@@ -41,7 +41,7 @@ function fn(name: string): string {
 
 const BY_ID = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
 const BANDS = computeAxisBands(CHARACTERS);
-const MARVEL = CHARACTERS.filter((c) => c.categoryId === "marvel").map((c) => c.id);
+const MARVEL = CHARACTERS.filter((c) => c.categoryId === "apex").map((c) => c.id);
 
 const marvelSlots = (playerId: string, ids: string[]) =>
   ids.map((characterId, i) => ({ playerId, characterId, zone: "FRONT", slot: i }));
@@ -246,7 +246,7 @@ describe("combatPlanFor includes FINAL matchups in FINAL_COMBAT", () => {
       phase: "FINAL_COMBAT",
       roundNo: 8,
       seed: "final-seed",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "p1", hp: 20, eliminatedAt: null },
         { playerId: "p2", hp: 15, eliminatedAt: null },
@@ -287,7 +287,7 @@ describe("combatPlanFor includes FINAL matchups in FINAL_COMBAT", () => {
       phase: "FINAL_COMBAT",
       roundNo: 8,
       seed: "final-seed",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       players: [
         { playerId: "p1", hp: 20, eliminatedAt: null },
         { playerId: "p2", hp: 0, eliminatedAt: 8 },

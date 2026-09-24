@@ -17,7 +17,7 @@ import { charactersInCategories } from "../src/lib/game/characters";
 import { DEFAULT_CONFIG } from "../src/lib/game/types";
 
 const NOW = 1_700_000_000_000;
-const MARVEL_POOL = charactersInCategories(["marvel"]);
+const MARVEL_POOL = charactersInCategories(["apex"]);
 /** The standard five-player draft. */
 const DRAFT = draftSize(5, DEFAULT_CONFIG);
 

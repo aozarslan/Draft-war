@@ -328,7 +328,7 @@ describe("the catalogue name stays canonical", () => {
   it("renders nothing when a character has no nickname", () => {
     // Most of the catalogue. A label that fell back to the name would print
     // it twice on every legacy card.
-    const legacy = CHARACTERS.find((c) => c.categoryId === "marvel")!;
+    const legacy = CHARACTERS.find((c) => c.categoryId === "apex")!;
     expect(nicknameFor(legacy.id, legacy.name)).toBe(legacy.name);
   });
 });

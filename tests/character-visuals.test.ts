@@ -61,7 +61,7 @@ describe("the catalogue people are playing right now", () => {
    * the same commit and a reviewer sees it.
    */
   const GAMEPLAY_FINGERPRINT =
-    "9c9630e112080fb0c0e85756862f799802d3d8ae309c746d104f4f1e906371d0";
+    "6658f0e245ef838e5cb93486e1c0759a493e2f08ce63ce7d359b19959f9236f9";
 
   it("still has every character it had, with every number unchanged", () => {
     const legacy = CHARACTERS.filter((c) => c.categoryId !== "football" && c.categoryId !== "basketball");
@@ -88,7 +88,7 @@ describe("the catalogue people are playing right now", () => {
   it("keeps all eight legacy categories selectable", () => {
     const ids = CATEGORIES.map((c) => c.id);
     for (const legacy of [
-      "animals", "marvel", "dc", "hollywood",
+      "animals", "apex", "vigil", "hollywood",
       "action-movies", "fantasy", "video-games", "anime",
     ]) {
       expect(ids).toContain(legacy);
@@ -99,7 +99,7 @@ describe("the catalogue people are playing right now", () => {
     const counts: Record<string, number> = {};
     for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
     expect(counts).toMatchObject({
-      marvel: 60, dc: 60, hollywood: 42, "action-movies": 30,
+      apex: 60, vigil: 60, hollywood: 42, "action-movies": 30,
       animals: 30, fantasy: 24, "video-games": 22, anime: 22,
     });
   });
@@ -108,8 +108,8 @@ describe("the catalogue people are playing right now", () => {
     // Ids are the join key for rosters, replays and stored results. A renamed
     // id orphans every finished match that referenced it.
     for (const id of [
-      "animals-lion", "animals-tiger", "marvel-iron-man",
-      "dc-batman", "fantasy-gandalf", "anime-goku",
+      "animals-lion", "animals-tiger", "apex-the-iron-tycoon",
+      "vigil-the-midnight-sentinel", "fantasy-the-wandering-sage", "anime-the-boundless-paragon",
     ]) {
       expect(CHARACTERS_BY_ID[id], `${id} is missing`).toBeTruthy();
     }
@@ -163,12 +163,12 @@ describe("the visual table carries only what was authored", () => {
     // look had been derived where it should have been chosen.
     // Thirteen animals (S4), sixty footballers (S6+), twenty-five
     // basketballers (S7). Everything else still resolves through the rules.
-    expect(Object.keys(CHARACTER_VISUALS)).toHaveLength(98);
+    expect(Object.keys(CHARACTER_VISUALS)).toHaveLength(358);
     for (const id of Object.keys(CHARACTER_VISUALS)) {
       expect(CHARACTERS_BY_ID[id], `${id} names no character`).toBeTruthy();
     }
     expect(visualFor("animals-polar-bear")).toBeUndefined();
-    expect(visualFor("marvel-iron-man")).toBeUndefined();
+    expect(visualFor("animals-giraffe")).toBeUndefined();
   });
 
   it("falls back to the catalogue name when there is no nickname", () => {

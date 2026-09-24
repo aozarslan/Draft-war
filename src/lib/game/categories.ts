@@ -271,7 +271,7 @@ export const CATEGORIES: Category[] = [
       special: [["special", 0.6], ["magic", 0.4]],
     },
     synergies: [
-      { tag: "fellowship", label: "Fellowship", perMember: 0.025 },
+      { tag: "fellowship", label: "Companions", perMember: 0.025 },
       { tag: "mage", label: "Arcane Circle", perMember: 0.025 },
       { tag: "monster", label: "Monsters", perMember: 0.025 },
       { tag: "royal", label: "Royalty", perMember: 0.02 },

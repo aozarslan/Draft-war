@@ -116,14 +116,14 @@ describe("archetype synergy stays a flavour, not a decision", () => {
 
 describe("hidden power", () => {
   it("shows the same band to everybody in the same game", () => {
-    const a = powerBand("marvel-thor", 88, "seed-abc");
-    const b = powerBand("marvel-thor", 88, "seed-abc");
+    const a = powerBand("apex-the-thunder-sovereign", 88, "seed-abc");
+    const b = powerBand("apex-the-thunder-sovereign", 88, "seed-abc");
     expect(a.label).toBe(b.label);
   });
 
   it("shows a different band in a different game", () => {
     const bands = new Set(
-      ["s1", "s2", "s3", "s4", "s5", "s6"].map((s) => powerBand("marvel-thor", 88, s).label),
+      ["s1", "s2", "s3", "s4", "s5", "s6"].map((s) => powerBand("apex-the-thunder-sovereign", 88, s).label),
     );
     // Not all identical — otherwise the seed is doing nothing.
     expect(bands.size).toBeGreaterThan(1);
@@ -140,15 +140,15 @@ describe("hidden power", () => {
   });
 
   it("hides more in ranked than in casual", () => {
-    const casual = powerBand("marvel-thor", 70, "s");
-    const ranked = powerBand("marvel-thor", 70, "s", "RANKED");
+    const casual = powerBand("apex-the-thunder-sovereign", 70, "s");
+    const ranked = powerBand("apex-the-thunder-sovereign", 70, "s", "RANKED");
     expect(ranked.high - ranked.low).toBeGreaterThan(casual.high - casual.low);
   });
 
   it("does not let the midpoint be the answer every time", () => {
     // If the true value were always centred, the band would hide nothing.
     const offsets = ["a", "b", "c", "d", "e", "f", "g", "h"].map((s) => {
-      const band = powerBand("marvel-thor", 70, s);
+      const band = powerBand("apex-the-thunder-sovereign", 70, s);
       return 70 - band.low;
     });
     expect(new Set(offsets).size).toBeGreaterThan(1);

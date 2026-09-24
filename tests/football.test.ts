@@ -385,7 +385,7 @@ describe("the game people are playing did not move", () => {
   it("keeps all eight legacy categories", () => {
     const ids = CATEGORIES.map((c) => c.id);
     for (const legacy of [
-      "animals", "marvel", "dc", "hollywood",
+      "animals", "apex", "vigil", "hollywood",
       "action-movies", "fantasy", "video-games", "anime",
     ]) {
       expect(ids).toContain(legacy);
@@ -399,7 +399,7 @@ describe("the game people are playing did not move", () => {
     const counts: Record<string, number> = {};
     for (const c of CHARACTERS) counts[c.categoryId] = (counts[c.categoryId] ?? 0) + 1;
     expect(counts).toMatchObject({
-      marvel: 60, dc: 60, hollywood: 42, "action-movies": 30,
+      apex: 60, vigil: 60, hollywood: 42, "action-movies": 30,
       animals: 30, fantasy: 24, "video-games": 22, anime: 22,
       football: 60, basketball: 25,
     });

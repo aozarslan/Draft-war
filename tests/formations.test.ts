@@ -95,7 +95,7 @@ describe("no formation beats doing nothing", () => {
   // an earlier version reshuffled matchups per formation and reported the same
   // no-op formation at 44% and then 72%.
   const byId = Object.fromEntries(CHARACTERS.map((c) => [c.id, c]));
-  const marvel = CHARACTERS.filter((c) => c.categoryId === "marvel");
+  const marvel = CHARACTERS.filter((c) => c.categoryId === "apex");
   const bands = computeAxisBands(CHARACTERS);
   const map = MAPS[0];
   const event = EVENT_CARDS[0];
@@ -130,7 +130,7 @@ describe("no formation beats doing nothing", () => {
             event,
             charactersById: byId,
             seed,
-            categoryIds: ["marvel"],
+            categoryIds: ["apex"],
             bands,
           });
           if (r.winnerPlayerId === "A") wins++;

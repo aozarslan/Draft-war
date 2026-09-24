@@ -139,6 +139,14 @@ have an image; the rest are articles that carry only non-free cover art, which
 the Wikimedia APIs correctly refuse to serve — those get a generated placeholder
 rather than a broken image.
 
+**Attribution.** Character descriptions sourced from Wikipedia are licensed
+under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) /
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Images are
+used via Wikimedia thumbnail URLs with per-image attribution displayed in the
+UI; their individual licences are reported by the Wikimedia API. The cached
+metadata lives in `data/wiki-cache.json` and is used offline by the SQL seed
+generator — it is not served to clients at runtime.
+
 **Wrong-subject protection.** A fictional character whose name is also a common
 noun quietly resolves to the wrong page: Wolverine is an animal, Magneto is a
 machine, Thor is a Norse god. A name check cannot catch this, so the enrichment
@@ -651,6 +659,10 @@ look in the browser console for a `[DRAFT WAR] Realtime disabled` warning.
   happen in the auction — but there are no in-battle choices.
 * **Manual auction order** is supported by the engine and config but has no UI
   yet; the host would have to set `manualOrder` in the room config.
+* **Vitest dev dependency** is pinned to 2.x pending a breaking upgrade to 5.x
+  needed to resolve CVE GHSA-82fw-gwwq-j7x9 (path traversal in the UI server)
+  and GHSA-67mh-4wv8-2f99 (esbuild). Both affect only the local dev / CI
+  environment, not the deployed app.
 * **A deliberately mono-category squad in a crossover can be strong.** With the
   pool shuffled from both categories the winners' rosters come out evenly
   spread (a test asserts it), but if a player somehow drafted five characters

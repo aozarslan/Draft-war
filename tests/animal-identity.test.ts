@@ -260,7 +260,7 @@ describe("the rest of the game did not move", () => {
     ).sort().join("\n");
     expect(legacy).toHaveLength(290);
     expect(createHash("sha256").update(fingerprint).digest("hex")).toBe(
-      "9c9630e112080fb0c0e85756862f799802d3d8ae309c746d104f4f1e906371d0",
+      "6658f0e245ef838e5cb93486e1c0759a493e2f08ce63ce7d359b19959f9236f9",
     );
   });
 

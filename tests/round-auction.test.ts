@@ -114,7 +114,7 @@ describe("a round offers more lots than it needs", () => {
 // ---------------------------------------------------------------------------
 
 describe("the pool a round opens with is decided by the seed", () => {
-  const pool = CHARACTERS.filter((c) => c.categoryId === "marvel");
+  const pool = CHARACTERS.filter((c) => c.categoryId === "apex");
   const config = { auctionOrder: "RANDOM" as const };
   const queueFor = (seed: string, round: number) =>
     buildAuctionQueue(pool, config, `${seed}:${round}`, roundQueueSize(5));
@@ -172,13 +172,13 @@ const liveMatch = {
     { playerId: "b", credits: 44, hp: 100, roundWins: 0, streak: 0, eliminatedAt: null, modifiers: [] },
   ],
   board: [
-    { playerId: "a", characterId: "marvel-thor", zone: "FRONT", slot: 0 },
-    { playerId: "a", characterId: "marvel-hulk", zone: "BENCH", slot: 5 },
-    { playerId: "b", characterId: "marvel-loki", zone: "FRONT", slot: 0 },
+    { playerId: "a", characterId: "apex-the-thunder-sovereign", zone: "FRONT", slot: 0 },
+    { playerId: "a", characterId: "apex-the-jade-berserker", zone: "BENCH", slot: 5 },
+    { playerId: "b", characterId: "apex-the-amber-trickster", zone: "FRONT", slot: 0 },
   ],
   acquisitions: [
-    { roundNo: 1, playerId: "a", characterId: "marvel-thor", price: 12, acquiredAt: "" },
-    { roundNo: 2, playerId: "a", characterId: "marvel-hulk", price: 7, acquiredAt: "" },
+    { roundNo: 1, playerId: "a", characterId: "apex-the-thunder-sovereign", price: 12, acquiredAt: "" },
+    { roundNo: 2, playerId: "a", characterId: "apex-the-jade-berserker", price: 7, acquiredAt: "" },
   ],
 } as unknown as NonNullable<StateResponse["match"]>;
 
@@ -214,7 +214,7 @@ describe("the auction screen spends the right wallet", () => {
 describe("the board accumulates across rounds", () => {
   it("keeps every earlier round's character", () => {
     const board = boardOf(snapshotWith(liveMatch), "a");
-    expect(board.map((b) => b.characterId)).toEqual(["marvel-thor", "marvel-hulk"]);
+    expect(board.map((b) => b.characterId)).toEqual(["apex-the-thunder-sovereign", "apex-the-jade-berserker"]);
   });
 
   it("separates the bench from the board", () => {
@@ -225,14 +225,14 @@ describe("the board accumulates across rounds", () => {
 
   it("does not mix squads", () => {
     expect(boardOf(snapshotWith(liveMatch), "b").map((b) => b.characterId)).toEqual([
-      "marvel-loki",
+      "apex-the-amber-trickster",
     ]);
   });
 
   it("carries the price the engine recorded", () => {
     expect(pricesOf(snapshotWith(liveMatch))).toEqual({
-      "marvel-thor": 12,
-      "marvel-hulk": 7,
+      "apex-the-thunder-sovereign": 12,
+      "apex-the-jade-berserker": 7,
     });
   });
 

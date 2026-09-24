@@ -35,18 +35,18 @@ function team(playerId: string, ids: string[], price = 8): BattleTeamInput {
 }
 
 const teamA = team("a", [
-  "marvel-thor",
-  "marvel-iron-man",
-  "marvel-spider-man",
-  "marvel-hulk",
-  "marvel-doctor-strange",
+  "apex-the-thunder-sovereign",
+  "apex-the-iron-tycoon",
+  "apex-the-swift-crawler",
+  "apex-the-jade-berserker",
+  "apex-the-veiled-arbiter",
 ]);
 const teamB = team("b", [
-  "marvel-thanos",
-  "marvel-magneto",
-  "marvel-venom",
-  "marvel-loki",
-  "marvel-ultron",
+  "apex-the-void-tyrant",
+  "apex-the-steel-harbinger",
+  "apex-the-onyx-brawler",
+  "apex-the-amber-trickster",
+  "apex-the-chrome-tyrant",
 ]);
 
 describe("pool balance", () => {
@@ -76,7 +76,7 @@ describe("pool balance", () => {
   it("keeps Hollywood out of superhero territory", () => {
     // Real people must not be rated like Kryptonians.
     const hollywood = charactersInCategories(["hollywood"]);
-    const dc = charactersInCategories(["dc"]);
+    const dc = charactersInCategories(["vigil"]);
     expect(Math.max(...hollywood.map((c) => c.gamePower))).toBeLessThan(
       Math.max(...dc.map((c) => c.gamePower)),
     );
@@ -94,7 +94,7 @@ describe("pool balance", () => {
 
 describe("axis projection", () => {
   it("leaves a single-category game on the authored numbers", () => {
-    const c = CHARACTERS_BY_ID["marvel-thor"];
+    const c = CHARACTERS_BY_ID["apex-the-thunder-sovereign"];
     expect(projectAxes(c, { mixed: false })).toEqual(
       allAxes(getCategory(c.categoryId), c.stats),
     );
@@ -110,13 +110,13 @@ describe("axis projection", () => {
           combatValueOf(projectAxes(c, { mixed: true, bands: BANDS })),
         ),
       );
-    for (const id of ["hollywood", "animals", "marvel", "fantasy"]) {
-      expect(bestOf(id), id).toBeCloseTo(bestOf("dc"), 1);
+    for (const id of ["hollywood", "animals", "apex", "fantasy"]) {
+      expect(bestOf(id), id).toBeCloseTo(bestOf("vigil"), 1);
     }
   });
 
   it("preserves strength ordering inside a category when normalising", () => {
-    for (const id of ["animals", "hollywood", "marvel"]) {
+    for (const id of ["animals", "hollywood", "apex"]) {
       const pool = charactersInCategories([id]);
       const raw = [...pool].sort(
         (a, b) =>
@@ -135,8 +135,8 @@ describe("axis projection", () => {
 
 describe("environment modifiers", () => {
   it("applies the map bonus only to matching tags", () => {
-    const tactician = CHARACTERS_BY_ID["dc-batman"]; // tactical
-    const brawler = CHARACTERS_BY_ID["marvel-hulk"]; // brawler/survival, no tech
+    const tactician = CHARACTERS_BY_ID["vigil-the-midnight-sentinel"]; // tactical
+    const brawler = CHARACTERS_BY_ID["apex-the-jade-berserker"]; // brawler/survival, no tech
     expect(environmentMultiplier(tactician, map, neutralEvent)).toBeGreaterThan(1);
     expect(
       environmentMultiplier(brawler, MAPS_BY_ID.desert, EVENTS_BY_ID["power-outage"]),
@@ -144,14 +144,14 @@ describe("environment modifiers", () => {
   });
 
   it("doubles map modifiers under NO RULES", () => {
-    const c = CHARACTERS_BY_ID["dc-batman"];
+    const c = CHARACTERS_BY_ID["vigil-the-midnight-sentinel"];
     const normal = environmentMultiplier(c, map, neutralEvent) - 1;
     const doubled = environmentMultiplier(c, map, EVENTS_BY_ID["no-rules"]) - 1;
     expect(doubled).toBeCloseTo(normal * 2, 5);
   });
 
   it("applies a negative event to the tagged characters", () => {
-    const techie = CHARACTERS_BY_ID["marvel-iron-man"]; // tech
+    const techie = CHARACTERS_BY_ID["apex-the-iron-tycoon"]; // tech
     expect(
       environmentMultiplier(techie, MAPS_BY_ID.forest, EVENTS_BY_ID["power-outage"]),
     ).toBeLessThan(1);
@@ -160,25 +160,25 @@ describe("environment modifiers", () => {
 
 describe("synergy", () => {
   it("rewards a themed squad and names the groups", () => {
-    const avengers = ["marvel-thor", "marvel-iron-man", "marvel-captain-america",
-                      "marvel-hawkeye", "marvel-black-widow"].map((id) => CHARACTERS_BY_ID[id]);
-    const scattered = ["marvel-thor", "marvel-magneto", "marvel-venom",
-                       "marvel-galactus", "marvel-daredevil"].map((id) => CHARACTERS_BY_ID[id]);
+    const avengers = ["apex-the-thunder-sovereign", "apex-the-iron-tycoon", "apex-the-gilded-vanguard",
+                      "apex-the-keen-marksman", "apex-the-quiet-phantom"].map((id) => CHARACTERS_BY_ID[id]);
+    const scattered = ["apex-the-thunder-sovereign", "apex-the-steel-harbinger", "apex-the-onyx-brawler",
+                       "apex-the-grim-architect", "apex-the-slate-duelist"].map((id) => CHARACTERS_BY_ID[id]);
 
     const themed = computeSynergy(avengers);
     expect(themed.total).toBeGreaterThan(computeSynergy(scattered).total);
-    expect(themed.groups.some((g) => g.label.startsWith("Avengers"))).toBe(true);
+    expect(themed.groups.some((g) => g.label.startsWith("Alpha Squad"))).toBe(true);
   });
 
   it("never exceeds the +10% cap", () => {
-    const stacked = charactersInCategories(["marvel"])
+    const stacked = charactersInCategories(["apex"])
       .filter((c) => c.tags.includes("avengers"))
       .slice(0, 8);
     expect(computeSynergy(stacked).total).toBeLessThanOrEqual(MAX_SYNERGY);
   });
 
   it("is zero for a squad with nothing in common", () => {
-    expect(computeSynergy([CHARACTERS_BY_ID["marvel-galactus"]]).total).toBe(0);
+    expect(computeSynergy([CHARACTERS_BY_ID["apex-the-grim-architect"]]).total).toBe(0);
   });
 });
 
@@ -204,7 +204,7 @@ describe("simulation", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed,
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       bands: BANDS,
     });
 
@@ -226,11 +226,11 @@ describe("simulation", () => {
     expect(result.teams.map((t) => t.rank).sort()).toEqual([1, 2]);
     expect(result.teams[0].playerId).toBe(result.winnerPlayerId);
     expect(result.teams[0].points).toBe(3);
-    expect(result.categoryIds).toEqual(["marvel"]);
+    expect(result.categoryIds).toEqual(["apex"]);
   });
 
   it("runs a five-way battle with five complete teams", () => {
-    const pool = charactersInCategories(["marvel"]);
+    const pool = charactersInCategories(["apex"]);
     const ids = pool.slice(0, 25).map((c) => c.id);
     const teams = [0, 1, 2, 3, 4].map((i) =>
       team(`p${i}`, ids.slice(i * 5, i * 5 + 5)),
@@ -242,7 +242,7 @@ describe("simulation", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed: "five-way",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       bands: BANDS,
     });
 
@@ -259,7 +259,7 @@ describe("simulation", () => {
   });
 
   it("does not let one team win every five-way battle", () => {
-    const pool = charactersInCategories(["dc"]);
+    const pool = charactersInCategories(["vigil"]);
     const ids = pool.slice(0, 25).map((c) => c.id);
     const teams = [0, 1, 2, 3, 4].map((i) =>
       team(`p${i}`, ids.slice(i * 5, i * 5 + 5)),
@@ -272,7 +272,7 @@ describe("simulation", () => {
           event: neutralEvent,
           charactersById: CHARACTERS_BY_ID,
           seed: `five-${i}`,
-          categoryIds: ["dc"],
+          categoryIds: ["vigil"],
           bands: BANDS,
         }).winnerPlayerId,
       ),
@@ -283,16 +283,16 @@ describe("simulation", () => {
   it("awards points by the 3/2/1/0 table with four teams", () => {
     const result = simulateBattle({
       teams: [
-        team("a", ["marvel-thor", "marvel-iron-man", "marvel-hulk"]),
-        team("b", ["marvel-thanos", "marvel-loki", "marvel-ultron"]),
-        team("c", ["marvel-storm", "marvel-wolverine", "marvel-cyclops"]),
-        team("d", ["marvel-venom", "marvel-carnage", "marvel-deadpool"]),
+        team("a", ["apex-the-thunder-sovereign", "apex-the-iron-tycoon", "apex-the-jade-berserker"]),
+        team("b", ["apex-the-void-tyrant", "apex-the-amber-trickster", "apex-the-chrome-tyrant"]),
+        team("c", ["apex-the-gale-sovereign", "apex-the-feral-revenant", "apex-the-runed-arbiter"]),
+        team("d", ["apex-the-onyx-brawler", "apex-the-scarlet-marauder", "apex-the-wicked-survivor"]),
       ],
       map,
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed: "four-way",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       bands: BANDS,
     });
     expect(result.teams.map((t) => t.points)).toEqual([3, 2, 1, 0]);
@@ -308,7 +308,7 @@ describe("simulation", () => {
    * a crossover, where normalisation is also in play.
    */
   it.each([
-    ["single category", ["marvel"], 0, 10],
+    ["single category", ["apex"], 0, 10],
     ["crossover", ["hollywood", "animals"], 10, 20],
   ] as const)("forecast matches reality: %s", (_label, categoryIds, from, to) => {
     const pool = charactersInCategories([...categoryIds]);
@@ -343,8 +343,8 @@ describe("simulation", () => {
    */
   it("does not let one category dominate a mixed pool", () => {
     const pairs: [string, string][] = [
-      ["hollywood", "marvel"],
-      ["animals", "dc"],
+      ["hollywood", "apex"],
+      ["animals", "vigil"],
       ["action-movies", "fantasy"],
       ["anime", "video-games"],
     ];
@@ -411,7 +411,7 @@ describe("simulation", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed: "value",
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       bands: BANDS,
     });
 
@@ -449,7 +449,7 @@ describe("V4 battle: phases, turning point, MVP performance, upset", () => {
       event: neutralEvent,
       charactersById: CHARACTERS_BY_ID,
       seed,
-      categoryIds: ["marvel"],
+      categoryIds: ["apex"],
       bands: BANDS,
     });
 
@@ -510,7 +510,7 @@ describe("V4 battle: phases, turning point, MVP performance, upset", () => {
     // every close battle an "upset" and every battle have a "turning point".
     // Varied matchups, not the fixed pairing above: whether an underdog exists
     // at all depends on the squads, and one pairing cannot answer "how often".
-    const pool = CHARACTERS.filter((c) => c.categoryId === "marvel");
+    const pool = CHARACTERS.filter((c) => c.categoryId === "apex");
     const rng = createRng("upset-matchups");
     let upsets = 0;
     let turns = 0;
@@ -533,7 +533,7 @@ describe("V4 battle: phases, turning point, MVP performance, upset", () => {
           event: neutralEvent,
           charactersById: CHARACTERS_BY_ID,
           seed: `rate-${m}-${i}`,
-          categoryIds: ["marvel"],
+          categoryIds: ["apex"],
           bands: BANDS,
         });
         if (r.upset) upsets++;

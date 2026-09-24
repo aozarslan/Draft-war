@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHARACTERS } from "../src/lib/game/characters";
+import { CHARACTERS, CHARACTER_VISUALS } from "../src/lib/game/characters";
 import {
   ARCHETYPE_OVERRIDES,
   DRAWN_ARCHETYPES,
@@ -37,8 +37,9 @@ describe("every character can be drawn", () => {
     }
   });
 
-  it("gives everything outside the animals category a human body", () => {
+  it("gives non-animal characters without an authored body plan a human body", () => {
     for (const c of CHARACTERS.filter((c) => c.categoryId !== "animals")) {
+      if (CHARACTER_VISUALS[c.id]?.va) continue; // explicit override wins
       expect(visualArchetypeFor(c)).toMatch(/^humanoid_/);
     }
   });
