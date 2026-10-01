@@ -1,0 +1,30 @@
+name: gitleaks
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # her Pazartesi 06:00 UTC - tam geçmiş taraması
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Her tetiklemede TÜM git geçmişini tarar (--log-opts=--all).
+      # Sızıntı bulunursa gitleaks exit code 1 ile döner ve bu step (dolayısıyla workflow) fail olur.
+      - name: Run gitleaks (full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
+          GITLEAKS_CONFIG: ""
