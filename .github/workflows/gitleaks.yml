@@ -19,12 +19,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Her tetiklemede TÜM git geçmişini tarar (--log-opts=--all).
-      # Sızıntı bulunursa gitleaks exit code 1 ile döner ve bu step (dolayısıyla workflow) fail olur.
+      # gitleaks CLI'yi doğrudan çalıştırır (marketplace action'ların aksine push/PR
+      # event'inde sadece yeni commit'leri değil, --log-opts=--all ile TÜM git
+      # geçmişini tarar). Sızıntı bulunursa gitleaks exit code 1 döner, bu step
+      # (dolayısıyla workflow) fail olur. --redact, secret değerlerinin Actions
+      # log'larına düz metin yazılmasını engeller.
       - name: Run gitleaks (full history)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
-          GITLEAKS_ENABLE_SUMMARY: true
-          GITLEAKS_CONFIG: ""
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --log-opts=--all --redact -v
